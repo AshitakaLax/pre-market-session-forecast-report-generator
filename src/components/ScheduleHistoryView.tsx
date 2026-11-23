@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Trash2, CheckCircle2, RefreshCw, Clock, Save } from 'lucide-react';
+import { Trash2, CheckCircle2, RefreshCw, Clock, Save, Copy, Check } from 'lucide-react';
 import type {
   CalibrationMode,
   ForecastRecord,
@@ -45,6 +45,20 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [symbolFilter, setSymbolFilter] = useState('ALL');
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+
+  const taskEndpointUrl =
+    typeof window !== 'undefined'
+      ? `${window.location.origin}/api/tasks/premarket`
+      : '/api/tasks/premarket';
+
+  const curlSnippet = `curl -X POST "${taskEndpointUrl}" -H "Content-Type: application/json" -d '{"symbols":["TQQQ"]}'`;
+
+  const handleCopyCurl = async () => {
+    await navigator.clipboard.writeText(curlSnippet);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 1800);
+  };
 
   useEffect(() => {
     if (!schedule) return;
@@ -239,6 +253,46 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
               Last batch: {schedule.last_run_status}
             </span>
           )}
+        </div>
+      </section>
+
+      {/* External Task Automation (Cloud Scheduler / GitHub Actions / Cron) */}
+      <section className="bg-white border border-slate-200 rounded-lg p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              External Scheduled Task Trigger (04:30 ET)
+            </h2>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Trigger your deployed app headlessly via Cloud Scheduler, GitHub Actions, or crontab so morning runs execute even when your browser is closed. Uses the billing-enabled API key attached in Settings &gt; Secrets.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyCurl}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors whitespace-nowrap shrink-0"
+          >
+            {copiedCurl ? <Check className="h-3.5 w-3.5 text-emerald-700" /> : <Copy className="h-3.5 w-3.5" />}
+            {copiedCurl ? 'Copied' : 'Copy Webhook Command'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 text-xs">
+          <div className="lg:col-span-7 space-y-1.5">
+            <div className="font-medium text-slate-700">HTTP POST Endpoint</div>
+            <pre className="p-3 bg-slate-950 text-slate-100 rounded-md overflow-x-auto font-mono">
+              {curlSnippet}
+            </pre>
+          </div>
+          <div className="lg:col-span-5 space-y-1.5">
+            <div className="font-medium text-slate-700">Weekday 04:30 ET Cron Expression</div>
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-1.5 font-mono text-slate-800">
+              <div>30 4 * * 1-5  (TZ: America/New_York)</div>
+              <div className="font-sans text-slate-600">
+                Automatically skips US market holidays unless <code className="font-mono">force: true</code> is passed. Add <code className="font-mono">CRON_SECRET</code> in Secrets to require a Bearer token.
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -236,6 +236,80 @@ async function startServer() {
     }
   });
 
+  // Headless scheduled task endpoint for Cloud Scheduler / GitHub Actions / cron
+  app.post('/api/tasks/premarket', async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${cronSecret}`) {
+        res.status(401).json({ error: 'Unauthorized task trigger.' });
+        return;
+      }
+    }
+
+    const clock = getEasternClock();
+    const config = readScheduleConfig();
+    const force = req.body?.force === true || req.query.force === '1';
+
+    if (!force && config.trading_days_only && !clock.isTradingDay) {
+      res.json({
+        skipped: true,
+        reason: `Market closed (${clock.dateEt} ${clock.weekday} ET). Pass force=true to override.`,
+        eastern_clock: clock,
+      });
+      return;
+    }
+
+    const symbols =
+      Array.isArray(req.body?.symbols) && req.body.symbols.length > 0
+        ? req.body.symbols.map((s: unknown) => String(s).trim().toUpperCase()).filter(Boolean)
+        : config.symbols.length > 0
+          ? config.symbols
+          : ['TQQQ'];
+
+    try {
+      const results = [];
+      for (const sym of symbols) {
+        const record = await runForecastPipeline({
+          symbol: sym,
+          calibrationMode: config.calibration_mode,
+          runWindow: config.run_window,
+          trigger: 'scheduled',
+        });
+        saveForecast(record);
+        results.push({
+          id: record.id,
+          symbol: record.payload.symbol,
+          as_of: record.payload.as_of,
+          base_price: record.payload.base_price,
+          regime: record.payload.execution_signals.regime,
+          kelly_fraction_cap: record.payload.execution_signals.kelly_fraction_cap,
+          tomorrow_mean_pct: record.payload.horizons.tomorrow.summary.mean_pct,
+          tomorrow_prob_positive: record.payload.horizons.tomorrow.summary.prob_positive,
+        });
+      }
+
+      writeScheduleConfig({
+        ...config,
+        last_scheduled_run_date_et: clock.dateEt,
+        last_run_status: `External task completed ${symbols.join(', ')} at ${clock.dateEt} ${clock.timeEt} ET`,
+      });
+
+      res.json({
+        completed: true,
+        eastern_clock: clock,
+        forecasts: results,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Scheduled task failed.';
+      writeScheduleConfig({
+        ...config,
+        last_run_status: `External task failed at ${clock.dateEt} ${clock.timeEt} ET: ${message}`,
+      });
+      res.status(500).json({ error: message });
+    }
+  });
+
   app.get('/api/schedule', (_req, res) => {
     res.json({
       schedule: readScheduleConfig(),

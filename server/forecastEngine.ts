@@ -31,6 +31,42 @@ function getClient(): GoogleGenAI {
   });
 }
 
+function formatGeminiError(err: unknown): Error {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED') || raw.toLowerCase().includes('quota')) {
+    return new Error(
+      'Gemini API quota exceeded (429 RESOURCE_EXHAUSTED). Open Settings > Secrets in AI Studio to attach a billing-enabled GEMINI_API_KEY, or check your quota at https://ai.dev/rate-limit.'
+    );
+  }
+  return err instanceof Error ? err : new Error(raw);
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const isRetryable =
+        msg.includes('429') ||
+        msg.includes('503') ||
+        msg.includes('UNAVAILABLE') ||
+        msg.includes('RESOURCE_EXHAUSTED');
+
+      // Only retry transient rate spikes; if daily/free-tier quota is 0, retries won't bypass it,
+      // but a brief 2.5s -> 6s backoff resolves RPM bursts.
+      if (!isRetryable || attempt === maxRetries) {
+        throw formatGeminiError(err);
+      }
+      const delayMs = attempt === 0 ? 2500 : 6000;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw formatGeminiError(lastError);
+}
+
 function getSymbolProfile(rawSymbol: string): {
   symbol: string;
   underlying: string;
@@ -235,15 +271,17 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
 }
 `;
 
-  const pass1Response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: researchPrompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
-      seed: 42,
-    },
-  });
+  const pass1Response = await withRetry(() =>
+    ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: researchPrompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+        seed: 42,
+      },
+    })
+  );
 
   const sources = extractGroundingSources(pass1Response);
   const snapshot = parseJsonLoose<MarketSnapshot>(pass1Response.text);
@@ -493,18 +531,20 @@ MATHEMATICAL CONSTRAINTS:
     ],
   };
 
-  const pass2Response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: synthesisPrompt,
-    config: {
-      systemInstruction:
-        'You are an institutional quantitative forecasting engine. Output strictly calibrated numerical probabilities matching the exact bin boundaries and schema.',
-      responseMimeType: 'application/json',
-      responseSchema,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-      seed: 42,
-    },
-  });
+  const pass2Response = await withRetry(() =>
+    ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: synthesisPrompt,
+      config: {
+        systemInstruction:
+          'You are an institutional quantitative forecasting engine. Output strictly calibrated numerical probabilities matching the exact bin boundaries and schema.',
+        responseMimeType: 'application/json',
+        responseSchema,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+        seed: 42,
+      },
+    })
+  );
 
   const rawPayload = parseJsonLoose<ForecastPayload>(pass2Response.text);
   rawPayload.symbol = profile.symbol;
@@ -570,14 +610,16 @@ Return ONLY valid JSON:
 }
 `;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: verifyPrompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-    },
-  });
+  const response = await withRetry(() =>
+    ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: verifyPrompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    })
+  );
 
   const sources = extractGroundingSources(response);
   const parsed = parseJsonLoose<{
