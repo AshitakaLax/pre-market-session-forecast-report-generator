@@ -102,6 +102,48 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
   throw formatGeminiError(lastError);
 }
 
+function isUnavailableError(err: unknown): boolean {
+  return /\b503\b|UNAVAILABLE|SERVICE_UNAVAILABLE/i.test(getGeminiErrorText(err));
+}
+
+/**
+ * Retries the preferred model, then switches to a configured lower-latency model
+ * only for transient 503/UNAVAILABLE capacity failures. Quota/auth/validation
+ * errors are surfaced immediately and are never hidden by model switching.
+ */
+async function generateContentWithModelFallback<T>(
+  generate: (model: string) => Promise<T>,
+  primaryModel: string,
+  fallbackModel: string,
+  operation: string,
+  onFallback?: (message: string) => void
+): Promise<T> {
+  try {
+    return await withRetry(() => generate(primaryModel));
+  } catch (primaryError) {
+    if (!isUnavailableError(primaryError) || fallbackModel === primaryModel) {
+      throw new Error(
+        operation + ' failed using Gemini model "' + primaryModel + '": ' + getGeminiErrorText(primaryError)
+      );
+    }
+
+    onFallback?.(
+      primaryModel + ' is temporarily unavailable after retries. Retrying ' + operation +
+      ' with fallback model ' + fallbackModel + '...'
+    );
+
+    try {
+      return await withRetry(() => generate(fallbackModel));
+    } catch (fallbackError) {
+      throw new Error(
+        operation + ' failed on both Gemini models. Primary "' + primaryModel + '": ' +
+        getGeminiErrorText(primaryError) + '. Fallback "' + fallbackModel + '": ' +
+        getGeminiErrorText(fallbackError)
+      );
+    }
+  }
+}
+
 function getSymbolProfile(rawSymbol: string): {
   symbol: string;
   underlying: string;
@@ -205,6 +247,9 @@ const RESEARCH_MODEL =
 
 const FORECAST_MODEL =
   process.env.GEMINI_FORECAST_MODEL ?? 'gemini-4-hydrogen';
+
+const FORECAST_FALLBACK_MODEL =
+  process.env.GEMINI_FORECAST_FALLBACK_MODEL ?? 'gemini-3.8-flash';
 
 const VERIFY_MODEL =
   process.env.GEMINI_VERIFY_MODEL ?? 'gemini-3.8-flash';
@@ -690,19 +735,31 @@ MATHEMATICAL CONSTRAINTS:
     ],
   };
 
-  const pass2Response = await withRetry(() =>
-    ai.models.generateContent({
-      model: FORECAST_MODEL,
-      contents: synthesisPrompt,
-      config: {
-        systemInstruction:
-          'You are an institutional quantitative forecasting engine. Output strictly calibrated numerical probabilities matching the exact bin boundaries and schema.',
-        responseMimeType: 'application/json',
-        responseSchema,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-        seed: 42,
-      },
-    })
+  const pass2Response = await generateContentWithModelFallback(
+    (model) =>
+      ai.models.generateContent({
+        model,
+        contents: synthesisPrompt,
+        config: {
+          systemInstruction:
+            'You are an institutional quantitative forecasting engine. Output strictly calibrated numerical probabilities matching the exact bin boundaries and schema.',
+          responseMimeType: 'application/json',
+          responseSchema,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+          seed: 42,
+        },
+      }),
+    FORECAST_MODEL,
+    FORECAST_FALLBACK_MODEL,
+    'Forecast synthesis',
+    (message) => {
+      params.onProgress?.({
+        stage: 'synthesis',
+        message,
+        snapshot,
+        sources,
+      });
+    }
   );
 
   const rawPayload = parseJsonLoose<ForecastPayload>(pass2Response.text);
