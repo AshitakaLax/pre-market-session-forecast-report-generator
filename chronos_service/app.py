@@ -233,6 +233,49 @@ def _close_series(histories: dict[str, pd.DataFrame], ticker: str) -> pd.Series 
 def _return_series(series: pd.Series) -> pd.Series:
     return np.log(series / series.shift(1)) * 100.0
 
+def _calendar_covariates(index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Deterministic covariates known for every future Nasdaq trading session."""
+    dates = pd.DatetimeIndex(index)
+    weekday_angle = 2.0 * np.pi * dates.dayofweek.to_numpy(dtype=float) / 5.0
+    year_angle = 2.0 * np.pi * dates.dayofyear.to_numpy(dtype=float) / 365.25
+    month_angle = 2.0 * np.pi * (dates.month.to_numpy(dtype=float) - 1.0) / 12.0
+    day_angle = 2.0 * np.pi * (dates.day.to_numpy(dtype=float) - 1.0) / 31.0
+    return pd.DataFrame(
+        {
+            "calendar_weekday_sin": np.sin(weekday_angle),
+            "calendar_weekday_cos": np.cos(weekday_angle),
+            "calendar_year_sin": np.sin(year_angle),
+            "calendar_year_cos": np.cos(year_angle),
+            "calendar_month_sin": np.sin(month_angle),
+            "calendar_month_cos": np.cos(month_angle),
+            "calendar_day_sin": np.sin(day_angle),
+            "calendar_day_cos": np.cos(day_angle),
+        },
+        index=dates,
+    )
+
+
+def _future_market_sessions(last_session: date, count: int) -> pd.DatetimeIndex:
+    """Return the next N actual Nasdaq sessions, including known holidays/closures."""
+    calendar = mcal.get_calendar("NASDAQ")
+    end_date = last_session + timedelta(days=max(180, int(count * 1.8)))
+    schedule = calendar.schedule(
+        start_date=last_session + timedelta(days=1),
+        end_date=end_date,
+    )
+    sessions = pd.DatetimeIndex(schedule.index).normalize()
+    if len(sessions) < count:
+        end_date = last_session + timedelta(days=max(730, int(count * 3)))
+        schedule = calendar.schedule(
+            start_date=last_session + timedelta(days=1),
+            end_date=end_date,
+        )
+        sessions = pd.DatetimeIndex(schedule.index).normalize()
+    if len(sessions) < count:
+        raise RuntimeError(f"Could not construct {count} future Nasdaq trading sessions.")
+    return sessions[:count]
+
+
 
 def _build_training_frame(
     symbol: str,
@@ -260,9 +303,11 @@ def _build_training_frame(
         else:
             missing[feature] = f"Historical series {ticker} unavailable."
 
+    seen_volatility_tickers: set[str] = set()
     for ticker, feature in (("^VIX", "vix_level"), (str(profile["volatility"]), "primary_volatility_index")):
-        if ticker == symbol or feature in candidate_features:
+        if ticker == symbol or ticker in seen_volatility_tickers:
             continue
+        seen_volatility_tickers.add(ticker)
         series = _close_series(histories, ticker)
         if series is not None:
             candidate_features[feature] = series.reindex(frame.index) / 100.0
@@ -270,6 +315,24 @@ def _build_training_frame(
             missing[feature] = f"Historical volatility series {ticker} unavailable."
 
     # Market-derived features use only information available at each daily close.
+    calendar_features = _calendar_covariates(pd.DatetimeIndex(frame.index))
+    for name in calendar_features.columns:
+        candidate_features[name] = calendar_features[name]
+
+    for ticker, feature in (
+        ("^TNX", "us_10y_yield_level"),
+        ("DX-Y.NYB", "dxy_return_pct"),
+        ("CL=F", "wti_return_pct"),
+    ):
+        series = _close_series(histories, ticker)
+        if series is not None:
+            if ticker == "^TNX":
+                candidate_features[feature] = (series / 10.0).reindex(frame.index)
+            else:
+                candidate_features[feature] = _return_series(series).reindex(frame.index)
+        else:
+            missing[feature] = f"Historical series {ticker} unavailable."
+
     candidate_features["realized_volatility_20d"] = returns.rolling(20).std() * np.sqrt(252)
     candidate_features["momentum_5d_pct"] = returns.rolling(5).sum()
     candidate_features["momentum_20d_pct"] = returns.rolling(20).sum()
@@ -399,10 +462,7 @@ def _make_market_snapshot(
             if value is None
         ]
     )
-    coverage_score = min(
-        0.95,
-        0.45 + min(len(training) / 1500.0, 1.0) * 0.25 + min(len(covariates) / 7.0, 1.0) * 0.25,
-    )
+    coverage_score = min(1.0, len(covariates) / 14.0)
     source_coverage = "mixed" if len(training) >= 500 and len(covariates) >= 3 else "degraded"
 
     snapshot = {
@@ -439,7 +499,10 @@ def _make_market_snapshot(
         "source_coverage": source_coverage,
         "raw_research_notes": (
             "Amazon Chronos-2 forecast of adjusted daily log returns. "
-            "Daily marginal 10%-90% quantiles are transformed into cumulative multi-horizon scenarios "
+            "Native direct quantile forecasts are used through the model-native prediction horizon; "
+            "longer horizons use a conservative historical standardized-innovation extension. "
+            "Deterministic calendar features are supplied as known future covariates. "
+            "Daily marginal quantiles are transformed into cumulative multi-horizon scenarios "
             "using five-session circular block-bootstrap innovations from historical standardized returns. "
             "Forecasts are anchored to the last completed regular-session close. "
             "The free Yahoo Finance adapter does not provide verified options positioning, a complete economic calendar, "
@@ -689,6 +752,8 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
             "last_completed_session": last_date.isoformat(),
             "anchor_price_type": "last_completed_regular_session_close",
             "calibration_status": "uncalibrated_zero_shot",
+            "native_model_horizon": int(getattr(pipeline, "model_prediction_length", 64)),
+            "horizon_extension_method": "historical_standardized_innovation",
         },
     }
 
