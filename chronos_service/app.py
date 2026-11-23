@@ -252,7 +252,7 @@ def _build_training_frame(
         ("SPY", "spy_return_pct"),
         (str(profile["futures"]), "index_futures_return_pct"),
     ):
-        if ticker == symbol or ticker in (candidate_features):
+        if ticker == symbol or feature in candidate_features:
             continue
         series = _close_series(histories, ticker)
         if series is not None:
@@ -351,7 +351,13 @@ def _make_market_snapshot(
     missing_inputs.extend(premarket_missing)
 
     def latest_close(ticker: str) -> pd.Series | None:
-        return _close_series(histories, ticker)
+        frame = histories.get(ticker)
+        if frame is None or frame.empty or "Close" not in frame:
+            return None
+        completed = _last_complete_daily_history(frame, now_et)
+        if completed.empty:
+            return None
+        return completed["Close"].replace([np.inf, -np.inf], np.nan).dropna()
 
     vol_series = latest_close(str(profile["volatility"]))
     vix_series = latest_close("^VIX")
@@ -370,8 +376,12 @@ def _make_market_snapshot(
     vix_level = _safe_last(vix_series)
     vxn_level = _safe_last(vxn_series)
     implied_level = _safe_last(vol_series)
-    if implied_level is not None and str(profile["volatility"]) == "^TNX":
+    if implied_level is not None and str(profile["volatility"]) not in ("^VIX", "^VXN", "^RVX"):
         implied_level = None
+    if implied_level is not None:
+        # Convert underlying-index implied volatility to an approximate
+        # symbol-level value for daily leveraged/inverse ETF comparisons.
+        implied_level *= float(profile["leverage"])
 
     futures_change = None
     if futures_series is not None and len(futures_series) >= 2:
@@ -473,7 +483,7 @@ def _execution_signals(
 
     one_day = distributions["tomorrow"]["summary"]
     q05 = float(one_day["quantiles_pct"]["p05"])
-    q50 = float(one_day["quantiles_pct"]["p25"] + one_day["quantiles_pct"]["p75"]) / 2.0
+    q50 = float(one_day["median_pct"])
     q95 = float(one_day["quantiles_pct"]["p95"])
     left_tail = abs(q05 - q50)
     right_tail = abs(q95 - q50)
