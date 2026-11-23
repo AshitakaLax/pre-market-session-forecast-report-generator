@@ -270,13 +270,26 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
             </div>
           </div>
 
+          {snapshot.source_coverage === 'degraded' && (
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            >
+              <strong>Live market research unavailable.</strong> This report was generated without
+              verified live prices, volatility, futures, macro data, or news. Its probabilities are
+              illustrative only; the Kelly allocation is forced to 0 and strategy weights are set
+              to cash defensive. Enable Google Search grounding on a billing-enabled project or
+              connect an external market-data provider before using forecasts for trading.
+            </div>
+          )}
+
           {/* 4-Column Signal Strip */}
           <div className="bg-white border border-slate-200 rounded-lg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
             <div className="p-4 space-y-1">
               <div className="text-xs text-slate-500">Base Reference Price</div>
               <div className="flex items-baseline gap-2.5">
                 <span className="text-2xl font-semibold text-slate-900 font-mono tabular-nums">
-                  ${payload.base_price.toFixed(2)}
+                  {payload.base_price > 0 ? `${payload.base_price.toFixed(2)}` : 'Unavailable'}
                 </span>
                 {snapshot.pre_market_change_pct !== null && (
                   <span
