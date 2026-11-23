@@ -135,6 +135,8 @@ async function startServer() {
     res.json({
       status: 'ok',
       has_gemini_key: Boolean(process.env.GEMINI_API_KEY),
+      google_search_grounding_enabled:
+        process.env.GEMINI_ENABLE_GOOGLE_SEARCH?.trim().toLowerCase() === 'true',
       eastern_clock: clock,
     });
   });
