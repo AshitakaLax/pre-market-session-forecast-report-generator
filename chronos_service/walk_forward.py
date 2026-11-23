@@ -18,6 +18,7 @@ from app import (
     _calendar_covariates,
     _fetch_histories,
     _future_market_sessions,
+    _last_complete_daily_history,
     _return_series,
 )
 from scenarios import (
@@ -98,8 +99,12 @@ def run_walk_forward(
             f"Could not download {symbol} history: {fetch_errors.get(symbol, 'no data returned')}"
         )
 
-    target_history = histories[symbol]
-    target_history = target_history.loc[target_history.index <= target_history.index[-1]].copy()
+    # Exclude an in-progress daily candle so the benchmark never scores
+    # against a partial current-session close.
+    target_history = _last_complete_daily_history(
+        histories[symbol],
+        datetime.now(__import__("zoneinfo").ZoneInfo("America/New_York")),
+    )
     if len(target_history) < 300 + HORIZONS["252d"] + 5:
         raise RuntimeError("At least 557 completed daily observations are required for walk-forward evaluation.")
 
