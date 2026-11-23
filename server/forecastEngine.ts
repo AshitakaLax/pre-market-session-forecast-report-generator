@@ -208,13 +208,12 @@ export async function runForecastPipeline(params: {
 export async function verifyRealizedOutcome(
   record: ForecastRecord
 ): Promise<RealizedVerification> {
-  const baseDate = record.payload.as_of.slice(0, 10);
+  const baseDate = record.snapshot.base_session_date ?? record.payload.as_of.slice(0, 10);
   const response = await callChronosService<ChronosVerifyResponse>(
     '/verify',
     {
       symbol: record.payload.symbol,
       base_date: baseDate,
-      run_window: record.run_window,
     },
     'realized-close verification'
   );
