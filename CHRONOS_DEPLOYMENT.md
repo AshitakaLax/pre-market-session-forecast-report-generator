@@ -25,6 +25,7 @@ cd chronos_service
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
 pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 8001
 ~~~
