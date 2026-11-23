@@ -134,7 +134,7 @@ async function startServer() {
     const clock = getEasternClock();
     const chronosServiceUrl = (
       process.env.CHRONOS_SERVICE_URL ?? 'http://127.0.0.1:8001'
-    ).replace(/\\/+$/, '');
+    ).replace(/\/+$/, '');
     let chronos: Record<string, unknown> = {
       reachable: false,
       model_loaded: false,
