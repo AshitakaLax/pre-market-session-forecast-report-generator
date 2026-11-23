@@ -600,20 +600,41 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
         name: training[name].to_numpy(dtype=np.float32)
         for name in covariates
     }
+    model_native_horizon = int(getattr(pipeline, "model_prediction_length", 64))
+    direct_horizon = min(
+        max_horizon,
+        model_native_horizon,
+        max(1, int(os.getenv("CHRONOS_DIRECT_HORIZON", "64"))),
+    )
+    future_sessions = _future_market_sessions(last_date, direct_horizon)
+    future_calendar = _calendar_covariates(future_sessions)
+    future_covariates = {
+        name: future_calendar[name].to_numpy(dtype=np.float32)
+        for name in future_calendar.columns
+        if name in past_covariates
+    }
     model_input = {
         "target": target_values,
         "past_covariates": past_covariates,
+        "future_covariates": future_covariates,
     }
 
     try:
         quantiles, _mean = pipeline.predict_quantiles(
             inputs=[model_input],
-            prediction_length=max_horizon,
+            prediction_length=direct_horizon,
             quantile_levels=QUANTILE_LEVELS.tolist(),
             context_length=min(CONTEXT_LENGTH, len(training)),
             limit_prediction_length=False,
         )
-        daily_quantiles = quantiles[0].detach().cpu().numpy()[0]
+        direct_daily_quantiles = quantiles[0].detach().cpu().numpy()[0]
+        from scenarios import extend_daily_quantiles
+
+        daily_quantiles, horizon_extension = extend_daily_quantiles(
+            direct_quantiles_pct=direct_daily_quantiles,
+            history_returns_pct=target_values[-min(len(target_values), 1260):],
+            total_prediction_length=max_horizon,
+        )
     except Exception as exc:
         logger.exception("Chronos-2 inference failed")
         raise HTTPException(status_code=503, detail=f"Chronos-2 inference failed: {str(exc)[:500]}") from exc
@@ -662,6 +683,9 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
             "simulation_paths": SIMULATIONS,
             "block_length": BLOCK_LENGTH,
             "forecast_steps": max_horizon,
+            "chronos_direct_steps": direct_horizon,
+            "historical_extension_steps": max_horizon - direct_horizon,
+            "long_horizon_extension": horizon_extension,
             "last_completed_session": last_date.isoformat(),
             "anchor_price_type": "last_completed_regular_session_close",
             "calibration_status": "uncalibrated_zero_shot",
