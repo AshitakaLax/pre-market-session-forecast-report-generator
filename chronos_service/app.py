@@ -21,7 +21,12 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from scenarios import QUANTILE_LEVELS, build_horizon_distributions, simulate_cumulative_returns
+from scenarios import (
+    QUANTILE_LEVELS,
+    build_horizon_distributions,
+    extend_daily_quantiles,
+    simulate_cumulative_returns,
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("meridian-chronos")
@@ -79,6 +84,7 @@ class ForecastRequest(BaseModel):
 class VerifyRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=16)
     base_date: date
+    run_window: str = "pre_market"
 
 
 def authorize(authorization: str | None) -> None:
@@ -691,8 +697,6 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
             limit_prediction_length=False,
         )
         direct_daily_quantiles = quantiles[0].detach().cpu().numpy()[0]
-        from scenarios import extend_daily_quantiles
-
         daily_quantiles, horizon_extension = extend_daily_quantiles(
             direct_quantiles_pct=direct_daily_quantiles,
             history_returns_pct=target_values[-min(len(target_values), 1260):],
@@ -784,6 +788,11 @@ def health():
         "data_provider": "Yahoo Finance via yfinance (unofficial; personal research use only)",
         "context_length": CONTEXT_LENGTH,
         "simulations": SIMULATIONS,
+        "native_prediction_length": int(getattr(MODEL, "model_prediction_length", 64)) if MODEL is not None else None,
+        "direct_horizon_limit": min(
+            int(os.getenv("CHRONOS_DIRECT_HORIZON", "64")),
+            int(getattr(MODEL, "model_prediction_length", 64)) if MODEL is not None else 64,
+        ),
     }
 
 
@@ -800,10 +809,16 @@ def forecast(request: ForecastRequest, authorization: str | None = Header(defaul
 def verify(request: VerifyRequest, authorization: str | None = Header(default=None)):
     authorize(authorization)
     symbol = request.symbol.strip().upper()
-    end_date = request.base_date + timedelta(days=14)
+    expected_start = (
+        request.base_date + timedelta(days=1)
+        if request.run_window == "eod"
+        else request.base_date
+    )
+    end_date = expected_start + timedelta(days=21)
+    now_et = datetime.now(NY)
     try:
         frame = yf.Ticker(symbol).history(
-            start=request.base_date.isoformat(),
+            start=expected_start.isoformat(),
             end=end_date.isoformat(),
             interval="1d",
             auto_adjust=True,
@@ -812,9 +827,12 @@ def verify(request: VerifyRequest, authorization: str | None = Header(default=No
             raise_errors=True,
         )
         frame = _normalize_history(frame)
-        frame = frame.loc[frame.index.date >= request.base_date]
+        frame = frame.loc[frame.index.date >= expected_start]
+        # Never treat an in-progress daily candle as a realized closing price.
+        if now_et.time() < clock_time(16, 10):
+            frame = frame.loc[frame.index.date < now_et.date()]
         if frame.empty:
-            return {"found": False, "session_date": None, "actual_close_price": None, "notes": "No completed close is available yet."}
+            return {"found": False, "session_date": None, "actual_close_price": None, "notes": "No completed post-forecast regular-session close is available yet."}
         session = frame.iloc[0]
         return {
             "found": True,
