@@ -313,9 +313,9 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                 )}
               </div>
               <div className="text-xs text-slate-500 font-mono tabular-nums">
-                {snapshot.overnight_futures_symbol}:{' '}
-                {snapshot.overnight_futures_change_pct !== null
-                  ? `${snapshot.overnight_futures_change_pct >= 0 ? '+' : ''}${snapshot.overnight_futures_change_pct.toFixed(2)}%`
+                {snapshot.overnight_futures_symbol} daily:{' '}
+                {snapshot.futures_daily_change_pct != null
+                  ? `${snapshot.futures_daily_change_pct >= 0 ? '+' : ''}${snapshot.futures_daily_change_pct.toFixed(2)}%`
                   : 'N/A'}
                 {' · '}Prev Close: {snapshot.prev_close ? `$${snapshot.prev_close.toFixed(2)}` : 'N/A'}
               </div>
