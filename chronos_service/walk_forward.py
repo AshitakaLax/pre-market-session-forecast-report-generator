@@ -15,11 +15,12 @@ from app import (
     CONTEXT_LENGTH,
     PROFILE_MAP,
     _build_training_frame,
+    _calendar_covariates,
     _fetch_histories,
-    _normalize_history,
+    _future_market_sessions,
     _return_series,
 )
-from scenarios import QUANTILE_LEVELS, simulate_cumulative_returns
+from scenarios import QUANTILE_LEVELS, extend_daily_quantiles, simulate_cumulative_returns
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("chronos-walk-forward")
@@ -141,17 +142,35 @@ def run_walk_forward(
             name: training[name].to_numpy(dtype=np.float32)
             for name in covariates
         }
-        model_input = {"target": target_values, "past_covariates": past_covariates}
+        native_horizon = int(getattr(pipeline, "model_prediction_length", 64))
+        direct_horizon = min(max_horizon, native_horizon, 64)
+        future_sessions = _future_market_sessions(cutoff.date(), direct_horizon)
+        future_calendar = _calendar_covariates(future_sessions)
+        future_covariates = {
+            name: future_calendar[name].to_numpy(dtype=np.float32)
+            for name in future_calendar.columns
+            if name in past_covariates
+        }
+        model_input = {
+            "target": target_values,
+            "past_covariates": past_covariates,
+            "future_covariates": future_covariates,
+        }
 
         try:
             quantiles, _mean = pipeline.predict_quantiles(
                 inputs=[model_input],
-                prediction_length=max_horizon,
+                prediction_length=direct_horizon,
                 quantile_levels=QUANTILE_LEVELS.tolist(),
                 context_length=min(CONTEXT_LENGTH, len(training)),
                 limit_prediction_length=False,
             )
-            daily_quantiles = quantiles[0].detach().cpu().numpy()[0]
+            direct_quantiles = quantiles[0].detach().cpu().numpy()[0]
+            daily_quantiles, _extension = extend_daily_quantiles(
+                direct_quantiles_pct=direct_quantiles,
+                history_returns_pct=target_values[-min(len(target_values), 1260):],
+                total_prediction_length=max_horizon,
+            )
             paths = simulate_cumulative_returns(
                 daily_quantiles_pct=daily_quantiles,
                 history_returns_pct=target_values[-min(len(target_values), 1260):],
