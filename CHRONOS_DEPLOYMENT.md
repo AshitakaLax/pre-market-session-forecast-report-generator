@@ -71,6 +71,8 @@ The service listens on port 8001. Its /health endpoint reports whether model wei
 - Quantile levels requested: 0.1 through 0.9, the model's trained quantile grid. Tail estimates outside this range use historical standardized residuals.
 - Simulation paths: 10,000 by default (CHRONOS_SIMULATIONS).
 - Dependence: five-session circular moving-block bootstrap (CHRONOS_BLOCK_LENGTH).
+- Known future inputs: calendar cyclic features are passed through Chronos-2's future_covariates interface.
+- Verification date handling: premarket forecasts verify the same session; EOD forecasts verify the next session and exclude incomplete daily candles.
 - Inference: CPU by default (CHRONOS_DEVICE=cpu); set cuda only when the Python runtime has a compatible CUDA-enabled PyTorch installation.
 
 ## Market data limitations
