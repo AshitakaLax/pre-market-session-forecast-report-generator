@@ -6,8 +6,8 @@ The TypeScript application calls a separate Python service that keeps Amazon Chr
 
 - chronos_service/app.py loads amazon/chronos-2 once at startup.
 - The service downloads adjusted daily bars for the target, underlying proxy, broad-market proxy, volatility indices and futures where available.
-- Chronos-2 forecasts daily target-symbol log-return quantiles using aligned past covariates.
-- The service turns marginal daily quantiles into multi-day scenarios using contiguous five-session block-bootstrap innovations. It compounds log returns to derive 1D, 5D, 21D, 63D and 252D distributions.
+- Chronos-2 forecasts daily target-symbol log-return quantiles using aligned past covariates and known future calendar covariates. The direct forecast is capped at the model-native horizon (normally 64 steps); the 252-session output is not presented as a 252-step Chronos prediction.
+- Beyond the model-native horizon, a conservative historical standardized-innovation distribution is used, then contiguous five-session block-bootstrap innovations create dependent paths. Log returns are compounded to derive 1D, 5D, 21D, 63D and 252D distributions.
 - The existing TypeScript math audit reconciles the ten fixed bins, CDF, moments and probability sums.
 - Kelly allocation remains 0 until walk-forward validation is implemented and passes acceptance thresholds.
 
@@ -67,7 +67,7 @@ The service listens on port 8001. Its /health endpoint reports whether model wei
 
 - Model: amazon/chronos-2 (120M parameters; Apache 2.0 model license).
 - Context length: up to 8,192 observations.
-- Forecast length: 252 trading sessions in this app; Chronos-2 supports longer outputs, but autoregressive unrolling can reduce quality at long horizons.
+- Direct forecast length: capped at the model-native horizon (normally 64 trading sessions). The 252-session endpoint is extended using historical standardized innovations because Chronos-2 documents that longer autoregressive forecasts may degrade.
 - Quantile levels requested: 0.1 through 0.9, the model's trained quantile grid. Tail estimates outside this range use historical standardized residuals.
 - Simulation paths: 10,000 by default (CHRONOS_SIMULATIONS).
 - Dependence: five-session circular moving-block bootstrap (CHRONOS_BLOCK_LENGTH).
@@ -94,7 +94,14 @@ Before enabling allocation recommendations, add and run a rolling-origin walk-fo
 - Results split by volatility regime and market period.
 - Baselines including zero-return, historical-volatility, AR/ETS and buy-and-hold.
 
-Use only data available at each historical forecast timestamp, include delisted instruments where applicable, and account for trading costs when evaluating any strategy. Do not tune on the final test period.
+Run the included rolling-origin benchmark before drawing conclusions:
+
+~~~bash
+cd chronos_service
+python walk_forward.py --symbol TQQQ --origins 48 --spacing 21 --device cpu --simulations 5000
+~~~
+
+This evaluates one-year-ahead scenarios at monthly rolling origins and reports quantile pinball losses, 80% interval coverage and positive-return Brier scores. Compare Chronos-2 with simple baselines and repeat for other symbols. Use only data available at each historical forecast timestamp, include delisted instruments where applicable, and account for trading costs when evaluating any strategy. Do not tune on the final test period.
 
 ## Tests
 
