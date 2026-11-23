@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -103,7 +104,7 @@ def run_walk_forward(
     # against a partial current-session close.
     target_history = _last_complete_daily_history(
         histories[symbol],
-        datetime.now(__import__("zoneinfo").ZoneInfo("America/New_York")),
+        datetime.now(ZoneInfo("America/New_York")),
     )
     if len(target_history) < 300 + HORIZONS["252d"] + 5:
         raise RuntimeError("At least 557 completed daily observations are required for walk-forward evaluation.")
