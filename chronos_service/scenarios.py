@@ -120,7 +120,8 @@ def distribution_for_horizon(
     edges = np.asarray([bins[0]["min_pct"]] + [item["max_pct"] for item in bins], dtype=np.float64)
     underflow = float(np.mean(outcomes < edges[0]))
     overflow = float(np.mean(outcomes >= edges[-1]))
-    counts, _ = np.histogram(outcomes, bins=edges)
+    in_range = outcomes[(outcomes >= edges[0]) & (outcomes < edges[-1])]
+    counts, _ = np.histogram(in_range, bins=edges)
     probs = counts.astype(np.float64) / max(len(outcomes), 1)
 
     cdf = underflow
