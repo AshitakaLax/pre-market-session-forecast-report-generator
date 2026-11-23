@@ -1,0 +1,8 @@
+{
+  "name": "Meridian Quant",
+  "description": "Pre-market quantitative market-regime and probabilistic forecasting workbench with live multi-source grounding, deterministic math audit, and automated scheduling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
