@@ -461,7 +461,7 @@ def _make_market_snapshot(
             for name, value in (
                 ("vix_level", vix_level),
                 ("vxn_level", vxn_level),
-                ("overnight_futures_change_pct", futures_change),
+                ("true_overnight_futures_change_pct", None),
                 ("us_10y_yield_pct", _safe_last(treasury_series)),
             )
             if value is None
@@ -484,7 +484,8 @@ def _make_market_snapshot(
         "five_day_return_pct": float(five_day) if five_day is not None else None,
         "twenty_day_return_pct": float(twenty_day) if twenty_day is not None else None,
         "overnight_futures_symbol": profile["futures"],
-        "overnight_futures_change_pct": float(futures_change) if futures_change is not None else None,
+        "overnight_futures_change_pct": None,
+        "futures_daily_change_pct": float(futures_change) if futures_change is not None else None,
         "vix_level": float(vix_level) if vix_level is not None else None,
         "vxn_level": float(vxn_level) if vxn_level is not None else None,
         "vix9d_level": None,
@@ -511,8 +512,9 @@ def _make_market_snapshot(
             "Daily marginal quantiles are transformed into cumulative multi-horizon scenarios "
             "using five-session circular block-bootstrap innovations from historical standardized returns. "
             "Forecasts are anchored to the last completed regular-session close. "
-            "The free Yahoo Finance adapter does not provide verified options positioning, a complete economic calendar, "
-            "or institutional-grade real-time market data. This model has not yet been walk-forward calibrated."
+            "The free Yahoo Finance adapter does not provide a true overnight-only futures change, verified options positioning, "
+            "a complete economic calendar, or institutional-grade real-time market data. Futures daily change is shown separately. "
+            "This model has not yet been walk-forward calibrated."
         ),
     }
     return snapshot, base_price
