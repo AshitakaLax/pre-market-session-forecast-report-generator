@@ -214,6 +214,7 @@ export async function verifyRealizedOutcome(
     {
       symbol: record.payload.symbol,
       base_date: baseDate,
+      run_window: record.run_window,
     },
     'realized-close verification'
   );
