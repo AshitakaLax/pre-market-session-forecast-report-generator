@@ -165,6 +165,15 @@ export interface ProgressEvent {
   sources?: GroundingSource[];
 }
 
+const RESEARCH_MODEL =
+  process.env.GEMINI_RESEARCH_MODEL ?? 'gemini-3.8-flash';
+
+const FORECAST_MODEL =
+  process.env.GEMINI_FORECAST_MODEL ?? 'gemini-4-hydrogen';
+
+const VERIFY_MODEL =
+  process.env.GEMINI_VERIFY_MODEL ?? 'gemini-3.8-flash';
+
 export async function runForecastPipeline(params: {
   symbol: string;
   calibrationMode: CalibrationMode;
@@ -270,10 +279,9 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
   "raw_research_notes": "2-3 sentence summary covering the 04:00-04:30 ET opening impulse, cross-source reconciliation, and rest-of-day posture."
 }
 `;
-
   const pass1Response = await withRetry(() =>
     ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
+      model: RESEARCH_MODEL,
       contents: researchPrompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -533,7 +541,7 @@ MATHEMATICAL CONSTRAINTS:
 
   const pass2Response = await withRetry(() =>
     ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
+      model: FORECAST_MODEL,
       contents: synthesisPrompt,
       config: {
         systemInstruction:
@@ -612,7 +620,7 @@ Return ONLY valid JSON:
 
   const response = await withRetry(() =>
     ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
+      model: VERIFY_MODEL,
       contents: verifyPrompt,
       config: {
         tools: [{ googleSearch: {} }],
