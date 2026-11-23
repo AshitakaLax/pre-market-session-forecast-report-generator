@@ -103,7 +103,7 @@ cd chronos_service
 python walk_forward.py --symbol TQQQ --origins 48 --spacing 21 --device cpu --simulations 5000
 ~~~
 
-This evaluates one-year-ahead scenarios at monthly rolling origins and reports quantile pinball losses, 80% interval coverage and positive-return Brier scores. Compare Chronos-2 with simple baselines and repeat for other symbols. Use only data available at each historical forecast timestamp, include delisted instruments where applicable, and account for trading costs when evaluating any strategy. Do not tune on the final test period.
+This evaluates one-year-ahead scenarios at monthly rolling origins and reports quantile pinball losses, 80% interval coverage and positive-return Brier scores. It also benchmarks against an unconditional five-session historical block-bootstrap baseline. Chronos-2 should only be preferred when it beats the baseline on a held-out period, not merely because it is more sophisticated. Repeat for other symbols. Use only data available at each historical forecast timestamp, include delisted instruments where applicable, and account for trading costs when evaluating any strategy. Do not tune on the final test period.
 
 ## Tests
 
