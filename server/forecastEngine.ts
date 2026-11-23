@@ -58,9 +58,9 @@ function isQuotaError(err: unknown): boolean {
 
 function getSuggestedRetryDelayMs(message: string, attempt: number): number {
   const match =
-    message.match(/retry in\\s+(\\d+(?:\\.\\d+)?)s/i) ??
-    message.match(/retryDelay["']?\\s*[:=]\\s*["']?(\\d+(?:\\.\\d+)?)s/i) ??
-    message.match(/retry-after["']?\\s*[:=]\\s*["']?(\\d+)/i);
+    message.match(/retry in\s+(\d+(?:\.\d+)?)s/i) ??
+    message.match(/retryDelay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)s/i) ??
+    message.match(/retry-after["']?\s*[:=]\s*["']?(\d+)/i);
   if (match) return Math.max(1000, Math.ceil(Number(match[1]) * 1000));
   return attempt === 0 ? 2500 : 6000;
 }
@@ -88,7 +88,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
       // A 429 is retried only when Google explicitly supplies a retry hint.
       // A zero/unavailable quota (including free-tier Search grounding) will not
       // recover by repeating the same request.
-      const hasRetryHint = /retry in\\s+\\d|retryDelay|retry-after/i.test(message);
+      const hasRetryHint = /retry in\s+\d|retryDelay|retry-after/i.test(message);
       const isRetryable = isServerOverload || (isQuotaError(err) && hasRetryHint);
 
       if (!isRetryable || attempt === maxRetries) {
@@ -765,6 +765,11 @@ MATHEMATICAL CONSTRAINTS:
 export async function verifyRealizedOutcome(
   record: ForecastRecord
 ): Promise<RealizedVerification> {
+  if (!GOOGLE_SEARCH_ENABLED) {
+    throw new Error(
+      'Realized-outcome verification requires Google Search grounding. Enable GEMINI_ENABLE_GOOGLE_SEARCH on a billing-enabled Gemini API project, or connect an external market-data source.'
+    );
+  }
   const ai = getClient();
   const baseDate = record.payload.as_of.slice(0, 10);
   const symbol = record.payload.symbol;
