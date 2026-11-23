@@ -20,7 +20,12 @@ from app import (
     _future_market_sessions,
     _return_series,
 )
-from scenarios import QUANTILE_LEVELS, extend_daily_quantiles, simulate_cumulative_returns
+from scenarios import (
+    QUANTILE_LEVELS,
+    block_bootstrap_residuals,
+    extend_daily_quantiles,
+    simulate_cumulative_returns,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("chronos-walk-forward")
@@ -47,7 +52,7 @@ def _score_origin(
     for name, days in HORIZONS.items():
         if days > len(actual_returns) or days > simulated_paths.shape[1]:
             continue
-        actual = float(np.sum(actual_returns[:days]))
+        actual = float(np.expm1(np.sum(actual_returns[:days]) / 100.0) * 100.0)
         outcomes = simulated_paths[:, days - 1]
         quantiles = np.quantile(outcomes, [0.1, 0.5, 0.9])
         prob_positive = float(np.mean(outcomes > 0))
@@ -187,6 +192,21 @@ def run_walk_forward(
                 )
             ).dropna().to_numpy(dtype=np.float64)
             horizon_scores = _score_origin(actual_returns, paths)
+
+            # Baseline: unconditional five-session moving-block bootstrap from
+            # the trailing 1,260 daily target returns, without Chronos forecasts.
+            baseline_daily = block_bootstrap_residuals(
+                target_values[-min(len(target_values), 1260):],
+                n_paths=simulations,
+                prediction_length=max_horizon,
+                block_length=5,
+                seed=(sum(ord(char) for char in symbol) + cutoff_position * 17 + 1) % (2**32 - 1),
+            )
+            baseline_paths = np.expm1(
+                np.cumsum(baseline_daily / 100.0, axis=1)
+            ) * 100.0
+            baseline_scores = _score_origin(actual_returns, baseline_paths)
+
             records.append(
                 {
                     "origin": cutoff.date().isoformat(),
@@ -194,6 +214,7 @@ def run_walk_forward(
                     "covariates": covariates,
                     "excluded_covariates": missing,
                     "horizons": horizon_scores,
+                    "historical_bootstrap_baseline": baseline_scores,
                 }
             )
             logger.info("Completed origin %s/%s at %s", index, len(origin_positions), cutoff.date())
@@ -217,6 +238,24 @@ def run_walk_forward(
             "brier_positive": float(np.mean([row["brier_positive"] for row in rows])),
         }
 
+    baseline_aggregate: dict[str, dict[str, float]] = {}
+    for horizon in HORIZONS:
+        rows = [
+            item["historical_bootstrap_baseline"][horizon]
+            for item in records
+            if horizon in item["historical_bootstrap_baseline"]
+        ]
+        if not rows:
+            continue
+        baseline_aggregate[horizon] = {
+            "origins": float(len(rows)),
+            "pinball_q10": float(np.mean([row["pinball_q10"] for row in rows])),
+            "pinball_q50": float(np.mean([row["pinball_q50"] for row in rows])),
+            "pinball_q90": float(np.mean([row["pinball_q90"] for row in rows])),
+            "coverage_80": float(np.mean([row["coverage_80"] for row in rows])),
+            "brier_positive": float(np.mean([row["brier_positive"] for row in rows])),
+        }
+
     report = {
         "model": "amazon/chronos-2",
         "symbol": symbol,
@@ -227,6 +266,7 @@ def run_walk_forward(
         "origins_completed": len(records),
         "method": "strict chronological expanding-window, no future data in training inputs",
         "aggregate_metrics": aggregate,
+        "historical_bootstrap_baseline_metrics": baseline_aggregate,
         "origins": records,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
