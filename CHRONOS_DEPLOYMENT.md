@@ -54,6 +54,43 @@ docker run --rm -p 8001:8001 \
 
 For production, allocate at least 4 GiB memory and 2–4 vCPUs to the CPU service; 8 GiB is a safer starting point for model download, warm-up and pandas/torch peak memory. Persist/cache the Hugging Face model directory where the hosting platform supports it.
 
+## Deploy the Python model service separately
+
+The existing Node/React app and the Chronos-2 inference service are separate processes. Deploying the Node app alone does not start the Python model. For a cloud deployment, build and deploy the Python service from the `chronos_service` directory, then set `CHRONOS_SERVICE_URL` in the Node app to the resulting service URL.
+
+### Google Cloud Run
+
+Create a random service token and store it in Secret Manager (do this once):
+
+~~~bash
+openssl rand -hex 32 | gcloud secrets create meridian-chronos-token --data-file=-
+~~~
+
+From the repository root:
+
+~~~bash
+cd chronos_service
+
+gcloud run deploy meridian-chronos \
+  --source . \
+  --region us-central1 \
+  --cpu 4 \
+  --memory 8Gi \
+  --concurrency 1 \
+  --timeout 900 \
+  --min 1 \
+  --max 2 \
+  --allow-unauthenticated \
+  --set-env-vars CHRONOS_DEVICE=cpu,CHRONOS_CONTEXT_LENGTH=8192,CHRONOS_DIRECT_HORIZON=64,CHRONOS_SIMULATIONS=10000,CHRONOS_BLOCK_LENGTH=5 \
+  --set-secrets CHRONOS_API_TOKEN=meridian-chronos-token:latest
+~~~
+
+Copy the service URL printed by `gcloud run` into the Node app's `CHRONOS_SERVICE_URL`. Also attach the same Secret Manager secret to the Node service as `CHRONOS_API_TOKEN`. The Python service checks the bearer token on forecast and verify requests; its health endpoint exposes only model/service status.
+
+**Cost note:** Cloud Run with `--min 1` keeps the model loaded and reduces cold starts, but incurs ongoing compute charges. Set `--min 0` to reduce idle cost at the expense of cold starts and model reload time. The service image installs CPU-only PyTorch; GPU deployments require a GPU-enabled Cloud Run configuration and a matching CUDA PyTorch build.
+
+For a local, no-hosted-API setup, use the Docker or Windows instructions above instead.
+
 ## Connecting the TypeScript app
 
 Set these variables in the Node app environment:
