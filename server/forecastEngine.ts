@@ -24,7 +24,7 @@ function serviceHeaders(): Record<string, string> {
     'Content-Type': 'application/json',
   };
   const token = process.env.CHRONOS_API_TOKEN;
-  if (token) headers.Authorization = \`Bearer \${token}\`;
+  if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 
@@ -35,7 +35,7 @@ async function callChronosService<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(\`\${CHRONOS_SERVICE_URL}\${endpoint}\`, {
+    response = await fetch(`${CHRONOS_SERVICE_URL}${endpoint}`, {
       method: 'POST',
       headers: serviceHeaders(),
       body: JSON.stringify(body),
@@ -44,7 +44,7 @@ async function callChronosService<T>(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      \`Chronos-2 service is unavailable at \${CHRONOS_SERVICE_URL}. Start the Python service or configure CHRONOS_SERVICE_URL. \${operation}: \${detail}\`
+      `Chronos-2 service is unavailable at ${CHRONOS_SERVICE_URL}. Start the Python service or configure CHRONOS_SERVICE_URL. ${operation}: ${detail}`
     );
   }
 
@@ -61,7 +61,7 @@ async function callChronosService<T>(
       typeof parsed === 'object' && parsed !== null && 'detail' in parsed
         ? String((parsed as { detail: unknown }).detail)
         : text || response.statusText;
-    throw new Error(\`Chronos-2 \${operation} failed (HTTP \${response.status}): \${detail}\`);
+    throw new Error(`Chronos-2 ${operation} failed (HTTP ${response.status}): ${detail}`);
   }
 
   return parsed as T;
@@ -125,7 +125,7 @@ export async function runForecastPipeline(params: {
 
   params.onProgress?.({
     stage: 'retrieval',
-    message: \`Loading completed daily market history and covariates for \${symbol}...\`,
+    message: `Loading completed daily market history and covariates for ${symbol}...`,
   });
 
   const result = await callChronosService<ChronosForecastResponse>(
@@ -144,13 +144,13 @@ export async function runForecastPipeline(params: {
   }
   if (result.raw_payload.symbol !== symbol) {
     throw new Error(
-      \`Chronos-2 returned symbol \${result.raw_payload.symbol}, but \${symbol} was requested.\`
+      `Chronos-2 returned symbol ${result.raw_payload.symbol}, but ${symbol} was requested.`
     );
   }
 
   params.onProgress?.({
     stage: 'synthesis',
-    message: \`Amazon Chronos-2 generated \${result.diagnostics?.simulation_paths ?? 0} correlated scenarios across five horizons.\`,
+    message: `Amazon Chronos-2 generated ${result.diagnostics?.simulation_paths ?? 0} correlated scenarios across five horizons.`,
     snapshot: result.snapshot,
     sources: result.sources ?? [],
   });
@@ -221,7 +221,7 @@ export async function verifyRealizedOutcome(
   if (!response.found || !response.actual_close_price || record.payload.base_price <= 0) {
     throw new Error(
       response.notes ||
-        \`Realized regular-session close for \${record.payload.symbol} after \${baseDate} is not yet available.\`
+        `Realized regular-session close for ${record.payload.symbol} after ${baseDate} is not yet available.`
     );
   }
 
@@ -244,8 +244,8 @@ export async function verifyRealizedOutcome(
     notes: response.notes,
     sources: [
       {
-        title: \`Yahoo Finance adjusted close: \${record.payload.symbol}\`,
-        uri: \`https://finance.yahoo.com/quote/\${encodeURIComponent(record.payload.symbol)}/history/\`,
+        title: `Yahoo Finance adjusted close: ${record.payload.symbol}`,
+        uri: `https://finance.yahoo.com/quote/${encodeURIComponent(record.payload.symbol)}/history/`,
         domain: 'finance.yahoo.com',
       },
     ],
