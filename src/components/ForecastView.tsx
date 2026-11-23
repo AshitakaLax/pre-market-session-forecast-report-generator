@@ -245,6 +245,12 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
               <span className="text-sm font-semibold text-slate-900 font-mono">{payload.symbol}</span>
               <span aria-hidden="true">·</span>
               <span className="font-mono tabular-nums">As of {payload.as_of}</span>
+              {snapshot.base_session_date && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums">Base session {snapshot.base_session_date}</span>
+                </>
+              )}
               <span aria-hidden="true">·</span>
               <span>
                 Coverage:{' '}
