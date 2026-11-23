@@ -69,7 +69,7 @@ function formatGeminiError(err: unknown): Error {
   const raw = getGeminiErrorText(err);
   if (isQuotaError(err)) {
     return new Error(
-      `Gemini API quota/rate limit reached. The API response was: ${raw.slice(0, 1200)}. Check the selected project's model and Search grounding limits at https://ai.dev/rate-limit. Google Search grounding requires a billing-enabled Gemini API project.`
+      `Gemini API quota/rate limit reached. Check the selected project's model and Search grounding limits at https://ai.dev/rate-limit. Google Search grounding is unavailable on the Gemini API Free Tier and requires a billing-enabled project when this request uses that tool. API response: ${raw.slice(0, 1200)}`
     );
   }
   return err instanceof Error ? err : new Error(raw);
