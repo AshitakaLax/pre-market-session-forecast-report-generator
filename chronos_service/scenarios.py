@@ -14,12 +14,16 @@ def _standardized_residuals(history_returns_pct: np.ndarray) -> np.ndarray:
     if returns.ndim != 1 or len(returns) < 60:
         raise ValueError("At least 60 daily returns are required to construct bootstrap innovations.")
 
+    rolling_mean = np.full(len(returns), np.nan, dtype=np.float64)
     rolling_std = np.full(len(returns), np.nan, dtype=np.float64)
     for i in range(19, len(returns)):
         window = returns[max(0, i - 19) : i + 1]
+        rolling_mean[i] = float(np.mean(window))
         rolling_std[i] = max(float(np.std(window, ddof=1)), 1e-6)
 
-    residuals = returns[19:] / rolling_std[19:]
+    # Center each observation against its trailing mean before standardizing.
+    # This keeps the resampled innovation pool from carrying historical drift.
+    residuals = (returns[19:] - rolling_mean[19:]) / rolling_std[19:]
     residuals = residuals[np.isfinite(residuals)]
     if len(residuals) < 40:
         raise ValueError("Not enough valid standardized historical returns for scenario generation.")
