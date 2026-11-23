@@ -98,6 +98,8 @@ export interface MarketSnapshot {
   symbol: string;
   underlying_symbol: string;
   leverage_factor: number;
+  /** Last completed daily session used to anchor the forecast base price. */
+  base_session_date?: string;
   as_of_utc: string;
   market_session_phase: string;
   prev_close: number | null;
