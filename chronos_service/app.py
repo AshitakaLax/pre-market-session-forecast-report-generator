@@ -622,7 +622,6 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
         {"underlying": symbol, "leverage": 1, "volatility": "^VIX", "futures": "ES=F"},
     )
     now_et = datetime.now(NY)
-    phase = _regular_session_phase(now_et)
     tickers = [
         symbol,
         str(profile["underlying"]),
@@ -738,7 +737,11 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
         "as_of": datetime.now().astimezone().isoformat(),
         "base_price": base_price,
         "return_type": "simple_pct",
-        "model": f"{MODEL_ID} (daily quantiles + {BLOCK_LENGTH}-session block bootstrap; {SIMULATIONS:,} scenarios)",
+        "model": (
+            f"{MODEL_ID} (native direct {direct_horizon}-session quantiles + "
+            f"historical standardized-innovation extension to {max_horizon} sessions; "
+            f"{BLOCK_LENGTH}-session block bootstrap; {SIMULATIONS:,} scenarios)"
+        ),
         "execution_signals": signals,
         "horizons": distributions,
     }
