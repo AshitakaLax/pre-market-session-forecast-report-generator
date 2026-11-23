@@ -116,6 +116,8 @@ export interface MarketSnapshot {
   twenty_day_return_pct: number | null;
   overnight_futures_symbol: string;
   overnight_futures_change_pct: number | null;
+  /** Daily close-to-close futures return; not an overnight-only measurement. */
+  futures_daily_change_pct?: number | null;
   vix_level: number | null;
   vxn_level: number | null;
   vix9d_level: number | null;
