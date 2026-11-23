@@ -178,3 +178,56 @@ def build_horizon_distributions(
             raise ValueError(f"Forecast horizon {days} is outside the generated path length.")
         results[str(spec["key"])] = distribution_for_horizon(paths[:, days - 1], spec)
     return results
+
+
+def extend_daily_quantiles(
+    direct_quantiles_pct: np.ndarray,
+    history_returns_pct: np.ndarray,
+    total_prediction_length: int,
+) -> tuple[np.ndarray, dict[str, float]]:
+    """
+    Extend the native Chronos-2 horizon with a historical residual model.
+
+    Chronos-2 warns that forecasts beyond its model-native prediction length may
+    lose quality. Keep the direct model forecast intact and use a conservative
+    historical standardized-innovation distribution for the remaining long horizon.
+    """
+    direct = np.asarray(direct_quantiles_pct, dtype=np.float64)
+    if direct.ndim != 2 or direct.shape[1] != len(QUANTILE_LEVELS):
+        raise ValueError("Direct Chronos quantiles must have shape (steps, 9).")
+    if total_prediction_length < len(direct):
+        direct = direct[:total_prediction_length]
+    if total_prediction_length <= len(direct):
+        return np.maximum.accumulate(direct, axis=1), {
+            "direct_steps": float(len(direct)),
+            "extension_steps": 0.0,
+            "extension_daily_vol_pct": 0.0,
+            "extension_daily_drift_pct": 0.0,
+        }
+
+    returns = np.asarray(history_returns_pct, dtype=np.float64)
+    residuals = _standardized_residuals(returns)
+    residual_quantiles = np.quantile(residuals, QUANTILE_LEVELS)
+
+    recent_returns = returns[-min(60, len(returns)):]
+    historical_sigma = float(np.std(recent_returns, ddof=1))
+    recent_model = direct[-min(20, len(direct)):]
+    model_sigma = float(np.median((recent_model[:, -1] - recent_model[:, 0]) / 2.563103))
+    extension_sigma = 0.5 * max(historical_sigma, 1e-6) + 0.5 * max(model_sigma, 1e-6)
+
+    # Shrink the historical mean strongly toward zero for horizons beyond the
+    # model-native range to avoid extrapolating short-term drift for months.
+    long_mean = float(np.mean(returns[-min(252, len(returns)):]))
+    extension_drift = float(np.clip(0.25 * long_mean, -0.10, 0.10))
+    long_quantiles = np.maximum.accumulate(residual_quantiles * extension_sigma + extension_drift)
+
+    result = np.empty((total_prediction_length, len(QUANTILE_LEVELS)), dtype=np.float64)
+    result[: len(direct)] = np.maximum.accumulate(direct, axis=1)
+    result[len(direct) :] = long_quantiles[None, :]
+
+    return result, {
+        "direct_steps": float(len(direct)),
+        "extension_steps": float(total_prediction_length - len(direct)),
+        "extension_daily_vol_pct": float(extension_sigma),
+        "extension_daily_drift_pct": extension_drift,
+    }
