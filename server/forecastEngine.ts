@@ -31,11 +31,45 @@ function getClient(): GoogleGenAI {
   });
 }
 
+function getGeminiErrorText(err: unknown): string {
+  if (err instanceof Error) {
+    const detail = err as Error & { error?: unknown; response?: unknown };
+    const nested = [detail.error, detail.response]
+      .filter(Boolean)
+      .map((value) => {
+        try {
+          return JSON.stringify(value);
+        } catch {
+          return String(value);
+        }
+      });
+    return [err.message, ...nested].join('\n');
+  }
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function isQuotaError(err: unknown): boolean {
+  return /429|RESOURCE_EXHAUSTED|quota/i.test(getGeminiErrorText(err));
+}
+
+function getSuggestedRetryDelayMs(message: string, attempt: number): number {
+  const match =
+    message.match(/retry in\s+(\d+(?:\.\d+)?)s/i) ??
+    message.match(/retryDelay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)s/i) ??
+    message.match(/retry-after["']?\s*[:=]\s*["']?(\d+)/i);
+  if (match) return Math.max(1000, Math.ceil(Number(match[1]) * 1000));
+  return attempt === 0 ? 2500 : 6000;
+}
+
 function formatGeminiError(err: unknown): Error {
-  const raw = err instanceof Error ? err.message : String(err);
-  if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED') || raw.toLowerCase().includes('quota')) {
+  const raw = getGeminiErrorText(err);
+  if (isQuotaError(err)) {
     return new Error(
-      'Gemini API quota exceeded (429 RESOURCE_EXHAUSTED). Open Settings > Secrets in AI Studio to attach a billing-enabled GEMINI_API_KEY, or check your quota at https://ai.dev/rate-limit.'
+      `Gemini API quota/rate limit reached. Check the selected project's model and Search grounding limits at https://ai.dev/rate-limit. Google Search grounding is unavailable on the Gemini API Free Tier and requires a billing-enabled project when this request uses that tool. API response: ${raw.slice(0, 1200)}`
     );
   }
   return err instanceof Error ? err : new Error(raw);
@@ -48,20 +82,21 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
       return await fn();
     } catch (err) {
       lastError = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isRetryable =
-        msg.includes('429') ||
-        msg.includes('503') ||
-        msg.includes('UNAVAILABLE') ||
-        msg.includes('RESOURCE_EXHAUSTED');
+      const message = getGeminiErrorText(err);
+      const isServerOverload =
+        message.includes('503') || message.includes('UNAVAILABLE');
+      // A 429 is retried only when Google explicitly supplies a retry hint.
+      // A zero/unavailable quota (including free-tier Search grounding) will not
+      // recover by repeating the same request.
+      const hasRetryHint = /retry in\s+\d|retryDelay|retry-after/i.test(message);
+      const isRetryable = isServerOverload || (isQuotaError(err) && hasRetryHint);
 
-      // Only retry transient rate spikes; if daily/free-tier quota is 0, retries won't bypass it,
-      // but a brief 2.5s -> 6s backoff resolves RPM bursts.
       if (!isRetryable || attempt === maxRetries) {
         throw formatGeminiError(err);
       }
-      const delayMs = attempt === 0 ? 2500 : 6000;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await new Promise((resolve) =>
+        setTimeout(resolve, getSuggestedRetryDelayMs(message, attempt))
+      );
     }
   }
   throw formatGeminiError(lastError);
@@ -174,6 +209,87 @@ const FORECAST_MODEL =
 const VERIFY_MODEL =
   process.env.GEMINI_VERIFY_MODEL ?? 'gemini-3.8-flash';
 
+const GOOGLE_SEARCH_ENABLED =
+  process.env.GEMINI_ENABLE_GOOGLE_SEARCH?.trim().toLowerCase() === 'true';
+
+function createUnavailableMarketSnapshot(
+  profile: ReturnType<typeof getSymbolProfile>,
+  asOfUtc: string,
+  reason: string
+): MarketSnapshot {
+  const missingInputs = [
+    'prev_close',
+    'premarket_open_4am',
+    'premarket_30m_high',
+    'premarket_30m_low',
+    'premarket_30m_change_pct',
+    'premarket_30m_volume',
+    'pre_market_or_latest_price',
+    'pre_market_change_pct',
+    'intraday_high',
+    'intraday_low',
+    'five_day_return_pct',
+    'twenty_day_return_pct',
+    'overnight_futures_change_pct',
+    'vix_level',
+    'vxn_level',
+    'vix9d_level',
+    'vix3m_level',
+    'symbol_iv_pct',
+    'iv_rank_pct',
+    'put_call_ratio',
+    'realized_vol_20d_pct',
+    'us_2y_yield_pct',
+    'us_10y_yield_pct',
+    'dxy_level',
+    'wti_crude_usd',
+    'fed_watch_summary',
+    'key_headlines',
+    'next_day_catalysts',
+  ];
+
+  return {
+    symbol: profile.symbol,
+    underlying_symbol: profile.underlying,
+    leverage_factor: profile.leverage,
+    as_of_utc: asOfUtc,
+    market_session_phase: 'unavailable',
+    prev_close: null,
+    premarket_open_4am: null,
+    premarket_30m_high: null,
+    premarket_30m_low: null,
+    premarket_30m_change_pct: null,
+    premarket_30m_volume: null,
+    pre_market_or_latest_price: null,
+    pre_market_change_pct: null,
+    intraday_high: null,
+    intraday_low: null,
+    five_day_return_pct: null,
+    twenty_day_return_pct: null,
+    overnight_futures_symbol: profile.futuresProxy,
+    overnight_futures_change_pct: null,
+    vix_level: null,
+    vxn_level: null,
+    vix9d_level: null,
+    vix3m_level: null,
+    symbol_iv_pct: null,
+    iv_rank_pct: null,
+    put_call_ratio: null,
+    realized_vol_20d_pct: null,
+    us_2y_yield_pct: null,
+    us_10y_yield_pct: null,
+    dxy_level: null,
+    wti_crude_usd: null,
+    fed_watch_summary: 'Unavailable: no live market research was retrieved.',
+    key_headlines: [],
+    next_day_catalysts: [],
+    missing_inputs: missingInputs,
+    confidence_score: 0,
+    source_coverage: 'degraded',
+    raw_research_notes: `LIVE RESEARCH UNAVAILABLE. ${reason} No current market, volatility, futures, macro, or news values are supplied to the forecast synthesis. Treat any resulting distribution as illustrative only; no trading allocation is permitted.`,
+  };
+}
+
 export async function runForecastPipeline(params: {
   symbol: string;
   calibrationMode: CalibrationMode;
@@ -192,7 +308,9 @@ export async function runForecastPipeline(params: {
 
   params.onProgress?.({
     stage: 'retrieval',
-    message: `Querying live multi-source market, ${profile.volIndex}/VIX, ${profile.futuresProxy} futures, and macro feeds for ${profile.symbol}...`,
+    message: GOOGLE_SEARCH_ENABLED
+      ? `Querying live multi-source market, ${profile.volIndex}/VIX, ${profile.futuresProxy} futures, and macro feeds for ${profile.symbol}...`
+      : 'Live Google Search grounding is disabled. Skipping retrieval rather than inventing current market data...',
   });
 
   const windowContext =
@@ -279,20 +397,51 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
   "raw_research_notes": "2-3 sentence summary covering the 04:00-04:30 ET opening impulse, cross-source reconciliation, and rest-of-day posture."
 }
 `;
-  const pass1Response = await withRetry(() =>
-    ai.models.generateContent({
-      model: RESEARCH_MODEL,
-      contents: researchPrompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
-        seed: 42,
-      },
-    })
-  );
+  let sources: GroundingSource[] = [];
+  let snapshot: MarketSnapshot;
+  let hasLiveResearch = false;
 
-  const sources = extractGroundingSources(pass1Response);
-  const snapshot = parseJsonLoose<MarketSnapshot>(pass1Response.text);
+  if (GOOGLE_SEARCH_ENABLED) {
+    try {
+      const pass1Response = await withRetry(() =>
+        ai.models.generateContent({
+          model: RESEARCH_MODEL,
+          contents: researchPrompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+            seed: 42,
+          },
+        })
+      );
+
+      const groundedSources = extractGroundingSources(pass1Response);
+      if (groundedSources.length > 0) {
+        sources = groundedSources;
+        snapshot = parseJsonLoose<MarketSnapshot>(pass1Response.text);
+        hasLiveResearch = true;
+      } else {
+        snapshot = createUnavailableMarketSnapshot(
+          profile,
+          nowUtc,
+          'Google Search was enabled, but the research response contained no grounding citations.'
+        );
+      }
+    } catch (err) {
+      if (!isQuotaError(err)) throw err;
+      snapshot = createUnavailableMarketSnapshot(
+        profile,
+        nowUtc,
+        `Google Search grounding was rejected by the API quota: ${getGeminiErrorText(err).slice(0, 400)}`
+      );
+    }
+  } else {
+    snapshot = createUnavailableMarketSnapshot(
+      profile,
+      nowUtc,
+      'GEMINI_ENABLE_GOOGLE_SEARCH is not true. Google Search grounding is unavailable on the Gemini API Free Tier.'
+    );
+  }
 
   // Normalize snapshot defaults
   snapshot.symbol = profile.symbol;
@@ -316,7 +465,9 @@ Return ONLY a valid JSON object matching this exact structure (no markdown fence
 
   params.onProgress?.({
     stage: 'synthesis',
-    message: `Retrieved ${sources.length} grounded sources. Synthesizing regime classification & rest-of-day distributions...`,
+    message: hasLiveResearch
+      ? `Retrieved ${sources.length} grounded sources. Synthesizing regime classification & rest-of-day distributions...`
+      : 'No verified live market data is available. Generating a degraded report with zero Kelly allocation...',
     snapshot,
     sources,
   });
@@ -560,6 +711,21 @@ MATHEMATICAL CONSTRAINTS:
   if (!rawPayload.base_price || rawPayload.base_price <= 0) {
     rawPayload.base_price = basePrice;
   }
+  if (!hasLiveResearch) {
+    rawPayload.base_price = 0;
+    rawPayload.execution_signals.data_quality = {
+      confidence_score: 0,
+      source_coverage: 'degraded',
+      missing_inputs: snapshot.missing_inputs,
+    };
+    rawPayload.execution_signals.kelly_fraction_cap = 0;
+    rawPayload.execution_signals.suggested_strategy_weights = {
+      momentum_trend: 0,
+      mean_reversion: 0,
+      volatility_harvesting: 0,
+      cash_defensive: 1,
+    };
+  }
   rawPayload.model =
     params.runWindow === 'eod'
       ? 'eod_regime_conditioned_forecast'
@@ -599,6 +765,11 @@ MATHEMATICAL CONSTRAINTS:
 export async function verifyRealizedOutcome(
   record: ForecastRecord
 ): Promise<RealizedVerification> {
+  if (!GOOGLE_SEARCH_ENABLED) {
+    throw new Error(
+      'Realized-outcome verification requires Google Search grounding. Enable GEMINI_ENABLE_GOOGLE_SEARCH on a billing-enabled Gemini API project, or connect an external market-data source.'
+    );
+  }
   const ai = getClient();
   const baseDate = record.payload.as_of.slice(0, 10);
   const symbol = record.payload.symbol;
