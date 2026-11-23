@@ -12,6 +12,8 @@ interface HealthState {
     error?: string;
     context_length?: number;
     simulations?: number;
+    native_prediction_length?: number;
+    direct_horizon_limit?: number;
   };
 }
 
@@ -82,7 +84,9 @@ export const ModelSetupView: React.FC = () => {
             <div className="font-semibold text-slate-900 mt-1">
               {health?.chronos?.simulations?.toLocaleString() ?? '10,000'} paths
             </div>
-            <div className="text-xs text-slate-500 mt-1">Five-session moving-block bootstrap</div>
+            <div className="text-xs text-slate-500 mt-1">
+              {health?.chronos?.direct_horizon_limit ?? 64}-session direct model horizon
+            </div>
           </div>
         </div>
 
@@ -111,9 +115,9 @@ export const ModelSetupView: React.FC = () => {
           <div>
             <h3 className="font-semibold text-slate-800">Probability construction</h3>
             <p className="text-slate-600 mt-1">
-              Chronos-2 supplies daily 10th–90th percentile forecasts. Historical standardized
-              innovations are resampled in contiguous five-session blocks, mapped to those
-              quantiles, and compounded into 1D, 5D, 21D, 63D and 252D scenarios.
+              Chronos-2 supplies direct daily 10th–90th percentile forecasts through its native
+              horizon (normally 64 sessions). Beyond that, a conservative historical standardized-
+              innovation extension is used; five-session blocks create dependent scenarios.
             </p>
           </div>
           <div>
