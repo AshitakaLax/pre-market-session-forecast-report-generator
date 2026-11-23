@@ -279,7 +279,7 @@ export default function App() {
             progressMessage={progressMessage}
             errorMessage={errorMessage}
             onRunForecast={handleRunForecast}
-            onOpenOptimizer={() => setActiveTab('optimizer')}
+            onOpenOptimizer={() => setActiveTab('model')}
           />
         )}
 
