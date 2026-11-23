@@ -468,7 +468,7 @@ def _make_market_snapshot(
             if value is None
         ]
     )
-    coverage_score = min(1.0, len(covariates) / 14.0)
+    coverage_score = min(1.0, len(covariates) / 22.0)
     source_coverage = "mixed" if len(training) >= 500 and len(covariates) >= 3 else "degraded"
 
     snapshot = {
