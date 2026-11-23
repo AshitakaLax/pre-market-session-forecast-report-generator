@@ -229,7 +229,7 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                 onClick={onOpenOptimizer}
                 className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
-                Review 6 Accuracy Fixes & Prompt
+                View Model & Data Setup
               </button>
             </div>
           </div>
@@ -254,7 +254,7 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
               </span>
               <span aria-hidden="true">·</span>
               <span className="font-mono tabular-nums">
-                Confidence: {(payload.execution_signals.data_quality.confidence_score * 100).toFixed(0)}%
+                Input coverage: {(payload.execution_signals.data_quality.confidence_score * 100).toFixed(0)}%
               </span>
               <span aria-hidden="true">·</span>
               <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
@@ -275,11 +275,10 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
               role="alert"
               className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
             >
-              <strong>Live market research unavailable.</strong> This report was generated without
-              verified live prices, volatility, futures, macro data, or news. Its probabilities are
-              illustrative only; the Kelly allocation is forced to 0 and strategy weights are set
-              to cash defensive. Enable Google Search grounding on a billing-enabled project or
-              connect an external market-data provider before using forecasts for trading.
+              <strong>Market-data coverage is degraded.</strong> Some history or covariates were
+              unavailable, so this forecast uses a reduced input set. Kelly sizing is disabled
+              until walk-forward calibration is completed. Review the missing inputs before relying
+              on the distribution.
             </div>
           )}
 
