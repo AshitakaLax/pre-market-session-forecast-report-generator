@@ -84,7 +84,6 @@ class ForecastRequest(BaseModel):
 class VerifyRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=16)
     base_date: date
-    run_window: str = "pre_market"
 
 
 def authorize(authorization: str | None) -> None:
@@ -381,13 +380,13 @@ def _premarket_snapshot(
     previous_close: float,
 ) -> tuple[dict[str, Any], list[str]]:
     minute = _intraday_premarket(symbol, now_et)
-    latest = minute["latest_price"] if minute["latest_price"] is not None else previous_close
+    latest = minute["latest_price"]
     missing: list[str] = []
-    if minute["latest_price"] is None and now_et.time() < clock_time(9, 30) and now_et.time() >= clock_time(4, 0):
+    if latest is None and now_et.time() < clock_time(9, 30) and now_et.time() >= clock_time(4, 0):
         missing.append("Premarket minute tape is unavailable from the selected free data adapter.")
-    change = (float(latest) / previous_close - 1.0) * 100.0 if previous_close > 0 else None
+    change = (float(latest) / previous_close - 1.0) * 100.0 if latest is not None and previous_close > 0 else None
     return {
-        "pre_market_or_latest_price": float(latest),
+        "pre_market_or_latest_price": float(latest) if latest is not None else None,
         "pre_market_change_pct": float(change) if change is not None else None,
         "premarket_open_4am": minute["open_4am"],
         "premarket_30m_high": minute["high_30m"],
@@ -474,6 +473,7 @@ def _make_market_snapshot(
     snapshot = {
         "symbol": symbol,
         "underlying_symbol": profile["underlying"],
+        "base_session_date": target_history.index[-1].date().isoformat(),
         "leverage_factor": profile["leverage"],
         "as_of_utc": datetime.now().astimezone().isoformat(),
         "market_session_phase": _regular_session_phase(now_et),
@@ -649,7 +649,11 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
         )
 
     last_date = target_history.index[-1].date()
-    business_days_stale = max(0, len(pd.bdate_range(last_date + timedelta(days=1), now_et.date())))
+    stale_schedule = mcal.get_calendar("NASDAQ").schedule(
+        start_date=last_date + timedelta(days=1),
+        end_date=now_et.date(),
+    )
+    business_days_stale = max(0, len(stale_schedule))
     if business_days_stale > 3:
         raise HTTPException(
             status_code=503,
@@ -809,11 +813,8 @@ def forecast(request: ForecastRequest, authorization: str | None = Header(defaul
 def verify(request: VerifyRequest, authorization: str | None = Header(default=None)):
     authorize(authorization)
     symbol = request.symbol.strip().upper()
-    expected_start = (
-        request.base_date + timedelta(days=1)
-        if request.run_window == "eod"
-        else request.base_date
-    )
+    # base_date is the exact last completed daily session used as base_price.
+    expected_start = request.base_date + timedelta(days=1)
     end_date = expected_start + timedelta(days=21)
     now_et = datetime.now(NY)
     try:
