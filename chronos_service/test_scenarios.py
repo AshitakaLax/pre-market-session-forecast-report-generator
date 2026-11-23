@@ -6,6 +6,7 @@ from scenarios import (
     QUANTILE_LEVELS,
     block_bootstrap_residuals,
     build_horizon_distributions,
+    extend_daily_quantiles,
     simulate_cumulative_returns,
 )
 
@@ -26,6 +27,17 @@ class ChronosScenarioTests(unittest.TestCase):
         self.assertEqual(paths.shape, (1000, 21))
         self.assertTrue(np.isfinite(paths).all())
         self.assertGreater(np.std(paths[:, -1]), np.std(paths[:, 0]))
+
+    def test_long_horizon_extension_preserves_direct_forecast(self):
+        rng = np.random.default_rng(11)
+        history = rng.normal(0.05, 2.0, 1200)
+        direct = np.tile(np.linspace(-2.0, 2.0, len(QUANTILE_LEVELS)), (64, 1))
+        extended, diagnostics = extend_daily_quantiles(direct, history, 252)
+        self.assertEqual(extended.shape, (252, 9))
+        np.testing.assert_array_equal(extended[:64], direct)
+        self.assertEqual(diagnostics["direct_steps"], 64.0)
+        self.assertEqual(diagnostics["extension_steps"], 188.0)
+        self.assertTrue(np.all(np.diff(extended, axis=1) >= 0))
 
     def test_distribution_bins_sum_to_one(self):
         rng = np.random.default_rng(2)
