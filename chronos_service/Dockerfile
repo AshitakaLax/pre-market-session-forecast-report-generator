@@ -11,7 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install CPU-only PyTorch to avoid downloading CUDA libraries in the CPU deployment.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple torch
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
