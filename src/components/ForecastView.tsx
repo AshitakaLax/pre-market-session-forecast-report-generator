@@ -185,11 +185,11 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
           <div className="flex items-center gap-3">
             <div className="h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
             <p className="text-sm text-slate-800 font-medium">
-              {progressMessage || `Executing 5-stage grounded pipeline for ${symbol}...`}
+              {progressMessage || `Executing Chronos-2 forecast pipeline for ${symbol}...`}
             </p>
           </div>
           <span className="text-xs font-mono text-slate-500 whitespace-nowrap shrink-0">
-            Active Grounding
+            Chronos-2 Live
           </span>
         </div>
       )}
@@ -207,13 +207,13 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-lg p-8 md:p-12">
           <div className="max-w-2xl space-y-5">
             <div className="text-xs text-slate-500 font-medium">
-              Target: {symbol} · Pipeline: 5-Stage Grounded Pre-Market Engine
+              Target: {symbol} · Model: Amazon Chronos-2 + Block-Bootstrap Distribution
             </div>
             <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 tracking-tight text-balance">
               Generate an audited pre-market probabilistic forecast for {symbol}
             </h1>
             <p className="text-sm md:text-base text-slate-600 leading-relaxed">
-              This workbench executes live multi-source web retrieval across primary exchange, Cboe volatility (VXN/VIX), CME futures (NQ=F), US Treasury yields, and scheduled macro calendars—followed by deterministic Step 5 mathematical verification.
+              This workbench fetches completed daily closes, volatility indices (VXN/VIX), futures (NQ=F), US Treasury yields, and pre-market minute bars, runs inference via Amazon Chronos-2, and performs deterministic Step 5 probability auditing.
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button

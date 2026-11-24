@@ -2,7 +2,11 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { runForecastPipeline, verifyRealizedOutcome } from './server/forecastEngine.ts';
+import {
+  getActiveChronosHealth,
+  runForecastPipeline,
+  verifyRealizedOutcome,
+} from './server/forecastEngine.ts';
 import {
   deleteForecastById,
   getForecastById,
@@ -132,36 +136,7 @@ async function startServer() {
 
   app.get('/api/health', async (_req, res) => {
     const clock = getEasternClock();
-    const chronosServiceUrl = (
-      process.env.CHRONOS_SERVICE_URL ?? 'http://127.0.0.1:8001'
-    ).replace(/\/+$/, '');
-    let chronos: Record<string, unknown> = {
-      reachable: false,
-      model_loaded: false,
-      url: chronosServiceUrl,
-    };
-
-    try {
-      const headers: Record<string, string> = {};
-      if (process.env.CHRONOS_API_TOKEN) {
-        headers.Authorization = `Bearer ${process.env.CHRONOS_API_TOKEN}`;
-      }
-      const response = await fetch(`${chronosServiceUrl}/health`, {
-        headers,
-        signal: AbortSignal.timeout(2500),
-      });
-      if (response.ok) {
-        chronos = {
-          ...(await response.json() as Record<string, unknown>),
-          reachable: true,
-          url: chronosServiceUrl,
-        };
-      } else {
-        chronos.error = `Chronos service returned HTTP ${response.status}`;
-      }
-    } catch (error) {
-      chronos.error = error instanceof Error ? error.message : String(error);
-    }
+    const chronos = await getActiveChronosHealth();
 
     res.json({
       status: chronos.model_loaded === true ? 'ok' : 'degraded',

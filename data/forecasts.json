@@ -1,0 +1,606 @@
+[
+  {
+    "id": "ad47a8e3-4087-462d-b9f3-32b41ebf8fd9",
+    "created_at": "2026-11-24T02:50:08.766Z",
+    "trigger": "manual",
+    "calibration_mode": "leveraged_scaled",
+    "run_window": "pre_market",
+    "payload": {
+      "schema_version": "1.1.0",
+      "symbol": "TQQQ",
+      "as_of": "2026-11-24T02:50:08.766Z",
+      "base_price": 49.1,
+      "return_type": "simple_pct",
+      "model": "amazon/chronos-2 (public service equinai-chronos-2-api.hf.space; 5-session block bootstrap; 10,000 scenarios)",
+      "execution_signals": {
+        "data_quality": {
+          "confidence_score": 1,
+          "source_coverage": "mixed",
+          "missing_inputs": [
+            "true_overnight_futures_change_pct"
+          ]
+        },
+        "regime": "high_vol_downtrend",
+        "volatility_state": "extreme",
+        "implied_vs_realized_vol_spread_pct": -30.82,
+        "expected_1d_move_pct": 14.04,
+        "skew_bias": "neutral",
+        "overnight_gap_risk": "moderate",
+        "kelly_fraction_cap": 0,
+        "next_day_catalysts": [],
+        "suggested_strategy_weights": {
+          "momentum_trend": 0,
+          "mean_reversion": 0,
+          "volatility_harvesting": 0,
+          "cash_defensive": 1
+        }
+      },
+      "horizons": {
+        "tomorrow": {
+          "label": "Tomorrow (1D)",
+          "trading_days": 1,
+          "bin_width_pct": 1.5,
+          "underflow_prob": 0.2176,
+          "overflow_prob": 0.1568,
+          "bins": [
+            {
+              "min_pct": -7.5,
+              "max_pct": -6,
+              "prob": 0.058,
+              "cdf": 0.2756
+            },
+            {
+              "min_pct": -6,
+              "max_pct": -4.5,
+              "prob": 0.0623,
+              "cdf": 0.3379
+            },
+            {
+              "min_pct": -4.5,
+              "max_pct": -3,
+              "prob": 0.0654,
+              "cdf": 0.4033
+            },
+            {
+              "min_pct": -3,
+              "max_pct": -1.5,
+              "prob": 0.0793,
+              "cdf": 0.4826
+            },
+            {
+              "min_pct": -1.5,
+              "max_pct": 0,
+              "prob": 0.0779,
+              "cdf": 0.5605
+            },
+            {
+              "min_pct": 0,
+              "max_pct": 1.5,
+              "prob": 0.0681,
+              "cdf": 0.6286
+            },
+            {
+              "min_pct": 1.5,
+              "max_pct": 3,
+              "prob": 0.0556,
+              "cdf": 0.6842
+            },
+            {
+              "min_pct": 3,
+              "max_pct": 4.5,
+              "prob": 0.0673,
+              "cdf": 0.7515
+            },
+            {
+              "min_pct": 4.5,
+              "max_pct": 6,
+              "prob": 0.0484,
+              "cdf": 0.7999
+            },
+            {
+              "min_pct": 6,
+              "max_pct": 7.5,
+              "prob": 0.0433,
+              "cdf": 0.8432
+            }
+          ],
+          "summary": {
+            "mean_pct": -0.76,
+            "median_pct": -1.16,
+            "std_pct": 6.22,
+            "prob_positive": 0.4395,
+            "expected_shortfall_5pct": -10.65,
+            "quantiles_pct": {
+              "p01": -11.43,
+              "p05": -9.38,
+              "p25": -6.66,
+              "p75": 4.47,
+              "p95": 8.96,
+              "p99": 11.01
+            }
+          }
+        },
+        "next_week": {
+          "label": "Next Week (5D)",
+          "trading_days": 5,
+          "bin_width_pct": 3,
+          "underflow_prob": 0.2423,
+          "overflow_prob": 0.1914,
+          "bins": [
+            {
+              "min_pct": -15,
+              "max_pct": -12,
+              "prob": 0.0573,
+              "cdf": 0.2996
+            },
+            {
+              "min_pct": -12,
+              "max_pct": -9,
+              "prob": 0.0657,
+              "cdf": 0.3653
+            },
+            {
+              "min_pct": -9,
+              "max_pct": -6,
+              "prob": 0.0534,
+              "cdf": 0.4187
+            },
+            {
+              "min_pct": -6,
+              "max_pct": -3,
+              "prob": 0.0869,
+              "cdf": 0.5056
+            },
+            {
+              "min_pct": -3,
+              "max_pct": 0,
+              "prob": 0.0512,
+              "cdf": 0.5568
+            },
+            {
+              "min_pct": 0,
+              "max_pct": 3,
+              "prob": 0.0599,
+              "cdf": 0.6167
+            },
+            {
+              "min_pct": 3,
+              "max_pct": 6,
+              "prob": 0.0557,
+              "cdf": 0.6724
+            },
+            {
+              "min_pct": 6,
+              "max_pct": 9,
+              "prob": 0.0414,
+              "cdf": 0.7138
+            },
+            {
+              "min_pct": 9,
+              "max_pct": 12,
+              "prob": 0.0536,
+              "cdf": 0.7674
+            },
+            {
+              "min_pct": 12,
+              "max_pct": 15,
+              "prob": 0.0412,
+              "cdf": 0.8086
+            }
+          ],
+          "summary": {
+            "mean_pct": -1.46,
+            "median_pct": -3.19,
+            "std_pct": 13.09,
+            "prob_positive": 0.4432,
+            "expected_shortfall_5pct": -21.57,
+            "quantiles_pct": {
+              "p01": -23.13,
+              "p05": -19.02,
+              "p25": -14.6,
+              "p75": 11.03,
+              "p95": 18.42,
+              "p99": 22.53
+            }
+          }
+        },
+        "next_month": {
+          "label": "Next Month (21D)",
+          "trading_days": 21,
+          "bin_width_pct": 6,
+          "underflow_prob": 0.2312,
+          "overflow_prob": 0.1848,
+          "bins": [
+            {
+              "min_pct": -30,
+              "max_pct": -24,
+              "prob": 0.07,
+              "cdf": 0.3012
+            },
+            {
+              "min_pct": -24,
+              "max_pct": -18,
+              "prob": 0.0707,
+              "cdf": 0.3719
+            },
+            {
+              "min_pct": -18,
+              "max_pct": -12,
+              "prob": 0.0722,
+              "cdf": 0.4441
+            },
+            {
+              "min_pct": -12,
+              "max_pct": -6,
+              "prob": 0.0641,
+              "cdf": 0.5082
+            },
+            {
+              "min_pct": -6,
+              "max_pct": 0,
+              "prob": 0.0664,
+              "cdf": 0.5746
+            },
+            {
+              "min_pct": 0,
+              "max_pct": 6,
+              "prob": 0.0611,
+              "cdf": 0.6357
+            },
+            {
+              "min_pct": 6,
+              "max_pct": 12,
+              "prob": 0.0515,
+              "cdf": 0.6872
+            },
+            {
+              "min_pct": 12,
+              "max_pct": 18,
+              "prob": 0.0468,
+              "cdf": 0.734
+            },
+            {
+              "min_pct": 18,
+              "max_pct": 24,
+              "prob": 0.0427,
+              "cdf": 0.7767
+            },
+            {
+              "min_pct": 24,
+              "max_pct": 30,
+              "prob": 0.0385,
+              "cdf": 0.8152
+            }
+          ],
+          "summary": {
+            "mean_pct": -3.58,
+            "median_pct": -6.77,
+            "std_pct": 25.84,
+            "prob_positive": 0.4254,
+            "expected_shortfall_5pct": -42.91,
+            "quantiles_pct": {
+              "p01": -46.02,
+              "p05": -37.81,
+              "p25": -28.39,
+              "p75": 20.25,
+              "p95": 36.67,
+              "p99": 44.88
+            }
+          }
+        },
+        "next_quarter": {
+          "label": "Next Quarter (63D)",
+          "trading_days": 63,
+          "bin_width_pct": 9,
+          "underflow_prob": 0.2523,
+          "overflow_prob": 0.204,
+          "bins": [
+            {
+              "min_pct": -45,
+              "max_pct": -36,
+              "prob": 0.078,
+              "cdf": 0.3303
+            },
+            {
+              "min_pct": -36,
+              "max_pct": -27,
+              "prob": 0.0757,
+              "cdf": 0.406
+            },
+            {
+              "min_pct": -27,
+              "max_pct": -18,
+              "prob": 0.072,
+              "cdf": 0.478
+            },
+            {
+              "min_pct": -18,
+              "max_pct": -9,
+              "prob": 0.062,
+              "cdf": 0.54
+            },
+            {
+              "min_pct": -9,
+              "max_pct": 0,
+              "prob": 0.0563,
+              "cdf": 0.5963
+            },
+            {
+              "min_pct": 0,
+              "max_pct": 9,
+              "prob": 0.0519,
+              "cdf": 0.6482
+            },
+            {
+              "min_pct": 9,
+              "max_pct": 18,
+              "prob": 0.0429,
+              "cdf": 0.6911
+            },
+            {
+              "min_pct": 18,
+              "max_pct": 27,
+              "prob": 0.0378,
+              "cdf": 0.7289
+            },
+            {
+              "min_pct": 27,
+              "max_pct": 36,
+              "prob": 0.0372,
+              "cdf": 0.7661
+            },
+            {
+              "min_pct": 36,
+              "max_pct": 45,
+              "prob": 0.0299,
+              "cdf": 0.796
+            }
+          ],
+          "summary": {
+            "mean_pct": -6.75,
+            "median_pct": -14.81,
+            "std_pct": 39.86,
+            "prob_positive": 0.4037,
+            "expected_shortfall_5pct": -65.03,
+            "quantiles_pct": {
+              "p01": -69.69,
+              "p05": -57.38,
+              "p25": -45.07,
+              "p75": 32.1,
+              "p95": 55.76,
+              "p99": 68.07
+            }
+          }
+        },
+        "next_year": {
+          "label": "Next Year (252D)",
+          "trading_days": 252,
+          "bin_width_pct": 15,
+          "underflow_prob": 0.2443,
+          "overflow_prob": 0.2093,
+          "bins": [
+            {
+              "min_pct": -75,
+              "max_pct": -60,
+              "prob": 0.131,
+              "cdf": 0.3753
+            },
+            {
+              "min_pct": -60,
+              "max_pct": -45,
+              "prob": 0.0954,
+              "cdf": 0.4707
+            },
+            {
+              "min_pct": -45,
+              "max_pct": -30,
+              "prob": 0.0793,
+              "cdf": 0.55
+            },
+            {
+              "min_pct": -30,
+              "max_pct": -15,
+              "prob": 0.0567,
+              "cdf": 0.6067
+            },
+            {
+              "min_pct": -15,
+              "max_pct": 0,
+              "prob": 0.0414,
+              "cdf": 0.6481
+            },
+            {
+              "min_pct": 0,
+              "max_pct": 15,
+              "prob": 0.0418,
+              "cdf": 0.6899
+            },
+            {
+              "min_pct": 15,
+              "max_pct": 30,
+              "prob": 0.0306,
+              "cdf": 0.7205
+            },
+            {
+              "min_pct": 30,
+              "max_pct": 45,
+              "prob": 0.0279,
+              "cdf": 0.7484
+            },
+            {
+              "min_pct": 45,
+              "max_pct": 60,
+              "prob": 0.0224,
+              "cdf": 0.7708
+            },
+            {
+              "min_pct": 60,
+              "max_pct": 75,
+              "prob": 0.0199,
+              "cdf": 0.7907
+            }
+          ],
+          "summary": {
+            "mean_pct": -16.91,
+            "median_pct": -39.46,
+            "std_pct": 66.55,
+            "prob_positive": 0.3519,
+            "expected_shortfall_5pct": -107.98,
+            "quantiles_pct": {
+              "p01": -115.75,
+              "p05": -95.23,
+              "p25": -74.35,
+              "p75": 46.07,
+              "p95": 93.25,
+              "p99": 113.78
+            }
+          }
+        }
+      }
+    },
+    "snapshot": {
+      "symbol": "TQQQ",
+      "underlying_symbol": "QQQ",
+      "leverage_factor": 3,
+      "base_session_date": "2026-11-23",
+      "as_of_utc": "2026-11-24T02:50:08.766Z",
+      "market_session_phase": "closed",
+      "prev_close": 49.099998474121094,
+      "premarket_open_4am": null,
+      "premarket_30m_high": null,
+      "premarket_30m_low": null,
+      "premarket_30m_change_pct": null,
+      "premarket_30m_volume": null,
+      "pre_market_or_latest_price": null,
+      "pre_market_change_pct": null,
+      "intraday_high": 50.439998626708984,
+      "intraday_low": 47.310001373291016,
+      "five_day_return_pct": -7.410900236924145,
+      "twenty_day_return_pct": -28.247847062471287,
+      "overnight_futures_symbol": "NQ=F",
+      "overnight_futures_change_pct": null,
+      "futures_daily_change_pct": 6.815513501681503,
+      "vix_level": 26.6200008392334,
+      "vxn_level": 36.310001373291016,
+      "vix9d_level": null,
+      "vix3m_level": null,
+      "symbol_iv_pct": 108.93000411987305,
+      "iv_rank_pct": null,
+      "put_call_ratio": null,
+      "realized_vol_20d_pct": 139.74702691372514,
+      "us_2y_yield_pct": null,
+      "us_10y_yield_pct": 4.918000221252441,
+      "dxy_level": 104.25399780273438,
+      "wti_crude_usd": 79.9000015258789,
+      "fed_watch_summary": "Not supplied by the Yahoo Finance daily-history adapter.",
+      "key_headlines": [],
+      "next_day_catalysts": [],
+      "missing_inputs": [
+        "true_overnight_futures_change_pct"
+      ],
+      "confidence_score": 1,
+      "source_coverage": "mixed",
+      "raw_research_notes": "Connected automatically to public Amazon Chronos-2 service (https://equinai-chronos-2-api.hf.space). Point forecasts at 1D–252D horizons combined with 10,000 five-session circular block-bootstrap scenarios from 1254 completed daily sessions (anchored to 2026-11-23 close $49.10)."
+    },
+    "sources": [
+      {
+        "title": "Public Amazon Chronos-2 Inference API (https://equinai-chronos-2-api.hf.space)",
+        "uri": "https://equinai-chronos-2-api.hf.space",
+        "domain": "equinai-chronos-2-api.hf.space"
+      },
+      {
+        "title": "Yahoo Finance daily history: CL=F",
+        "uri": "https://finance.yahoo.com/quote/CL%3DF/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: DX-Y.NYB",
+        "uri": "https://finance.yahoo.com/quote/DX-Y.NYB/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: NQ=F",
+        "uri": "https://finance.yahoo.com/quote/NQ%3DF/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: QQQ",
+        "uri": "https://finance.yahoo.com/quote/QQQ/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: SPY",
+        "uri": "https://finance.yahoo.com/quote/SPY/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: TQQQ",
+        "uri": "https://finance.yahoo.com/quote/TQQQ/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: ^TNX",
+        "uri": "https://finance.yahoo.com/quote/%5ETNX/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: ^VIX",
+        "uri": "https://finance.yahoo.com/quote/%5EVIX/",
+        "domain": "finance.yahoo.com"
+      },
+      {
+        "title": "Yahoo Finance daily history: ^VXN",
+        "uri": "https://finance.yahoo.com/quote/%5EVXN/",
+        "domain": "finance.yahoo.com"
+      }
+    ],
+    "audit": {
+      "audited_at": "2026-11-24T02:50:10.898Z",
+      "all_passed": true,
+      "strategy_weight_raw_sum": 1,
+      "strategy_weight_reconciled_sum": 1,
+      "horizons": [
+        {
+          "horizon": "tomorrow",
+          "raw_prob_sum": 1,
+          "reconciled_prob_sum": 1,
+          "cdf_monotonic": true,
+          "quantiles_coherent": true,
+          "adjustment_applied_bp": 0
+        },
+        {
+          "horizon": "next_week",
+          "raw_prob_sum": 1,
+          "reconciled_prob_sum": 1,
+          "cdf_monotonic": true,
+          "quantiles_coherent": true,
+          "adjustment_applied_bp": 0
+        },
+        {
+          "horizon": "next_month",
+          "raw_prob_sum": 1,
+          "reconciled_prob_sum": 1,
+          "cdf_monotonic": true,
+          "quantiles_coherent": true,
+          "adjustment_applied_bp": 0
+        },
+        {
+          "horizon": "next_quarter",
+          "raw_prob_sum": 1,
+          "reconciled_prob_sum": 1,
+          "cdf_monotonic": true,
+          "quantiles_coherent": true,
+          "adjustment_applied_bp": 0
+        },
+        {
+          "horizon": "next_year",
+          "raw_prob_sum": 1,
+          "reconciled_prob_sum": 1,
+          "cdf_monotonic": true,
+          "quantiles_coherent": true,
+          "adjustment_applied_bp": 0
+        }
+      ]
+    }
+  }
+]

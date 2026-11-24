@@ -10,14 +10,21 @@ import type {
 } from '../src/types/forecast.ts';
 import {
   auditAndReconcileForecast,
+  buildExpectedBins,
   getBinWidthForSymbol,
   HORIZON_SPECS,
-  buildExpectedBins,
 } from './mathAudit.ts';
+import {
+  probePublicChronosHealth,
+  runPublicChronosPipeline,
+  verifyPublicRealizedOutcome,
+} from './publicChronosAdapter.ts';
 
-const CHRONOS_SERVICE_URL = (
-  process.env.CHRONOS_SERVICE_URL ?? 'http://127.0.0.1:8001'
-).replace(/\/+$/, '');
+function getPrivateChronosUrl(): string | null {
+  const configured = process.env.CHRONOS_SERVICE_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  return null;
+}
 
 function serviceHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -28,14 +35,77 @@ function serviceHeaders(): Record<string, string> {
   return headers;
 }
 
+async function probePrivateService(url: string, timeoutMs = 1500): Promise<Record<string, unknown> | null> {
+  try {
+    const headers: Record<string, string> = {};
+    if (process.env.CHRONOS_API_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.CHRONOS_API_TOKEN}`;
+    }
+    const response = await fetch(`${url}/health`, {
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    if (data.model_loaded === true) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getActiveChronosHealth(): Promise<Record<string, unknown>> {
+  const configuredPrivate = getPrivateChronosUrl();
+  if (configuredPrivate) {
+    const privateHealth = await probePrivateService(configuredPrivate, 2500);
+    if (privateHealth) {
+      return {
+        ...privateHealth,
+        reachable: true,
+        url: configuredPrivate,
+        mode: 'private_service',
+      };
+    }
+    // Fall back to public Chronos-2 service if configured private service is not reachable
+    const publicHealth = await probePublicChronosHealth();
+    if (publicHealth.model_loaded) {
+      return { ...publicHealth };
+    }
+    return {
+      reachable: false,
+      model_loaded: false,
+      url: configuredPrivate,
+      mode: 'private_service',
+      error: `Private Chronos-2 service unavailable at ${configuredPrivate}, and public fallback failed: ${publicHealth.error ?? 'unreachable'}`,
+    };
+  }
+
+  // Check if a local chronos_service is running on 127.0.0.1:8001; otherwise auto-connect to public Chronos-2
+  const localHealth = await probePrivateService('http://127.0.0.1:8001', 600);
+  if (localHealth) {
+    return {
+      ...localHealth,
+      reachable: true,
+      url: 'http://127.0.0.1:8001',
+      mode: 'private_service',
+    };
+  }
+
+  const publicHealth = await probePublicChronosHealth();
+  return { ...publicHealth };
+}
+
 async function callChronosService<T>(
+  baseUrl: string,
   endpoint: string,
   body: unknown,
   operation: string
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${CHRONOS_SERVICE_URL}${endpoint}`, {
+    response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
       headers: serviceHeaders(),
       body: JSON.stringify(body),
@@ -44,7 +114,7 @@ async function callChronosService<T>(
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Chronos-2 service is unavailable at ${CHRONOS_SERVICE_URL}. Start the Python service or configure CHRONOS_SERVICE_URL. ${operation}: ${detail}`
+      `Chronos-2 service is unavailable at ${baseUrl}. ${operation}: ${detail}`
     );
   }
 
@@ -99,6 +169,17 @@ interface ChronosVerifyResponse {
   notes: string;
 }
 
+async function resolvePrivateUrlIfAvailable(): Promise<string | null> {
+  const configured = getPrivateChronosUrl();
+  if (configured) {
+    const ok = await probePrivateService(configured, 1500);
+    if (ok) return configured;
+  }
+  const localOk = await probePrivateService('http://127.0.0.1:8001', 600);
+  if (localOk) return 'http://127.0.0.1:8001';
+  return null;
+}
+
 export async function runForecastPipeline(params: {
   symbol: string;
   calibrationMode: CalibrationMode;
@@ -106,6 +187,11 @@ export async function runForecastPipeline(params: {
   trigger: 'manual' | 'scheduled';
   onProgress?: (event: ProgressEvent) => void;
 }): Promise<ForecastRecord> {
+  const privateUrl = await resolvePrivateUrlIfAvailable();
+  if (!privateUrl) {
+    return runPublicChronosPipeline(params);
+  }
+
   const symbol = params.symbol.trim().toUpperCase().replace(/[^A-Z0-9.\-=]/g, '') || 'TQQQ';
   const nowUtc = new Date().toISOString();
   const horizonSpecs = HORIZON_SPECS.map((spec) => {
@@ -129,6 +215,7 @@ export async function runForecastPipeline(params: {
   });
 
   const result = await callChronosService<ChronosForecastResponse>(
+    privateUrl,
     '/forecast',
     {
       symbol,
@@ -160,8 +247,6 @@ export async function runForecastPipeline(params: {
   rawPayload.model = rawPayload.model || 'amazon/chronos-2';
   rawPayload.base_price = Number(rawPayload.base_price);
 
-  // Sizing is disabled by the service until walk-forward calibration establishes
-  // that forecast probabilities are reliable enough to support a Kelly estimate.
   rawPayload.execution_signals.kelly_fraction_cap = 0;
   rawPayload.execution_signals.suggested_strategy_weights = {
     momentum_trend: 0,
@@ -208,8 +293,14 @@ export async function runForecastPipeline(params: {
 export async function verifyRealizedOutcome(
   record: ForecastRecord
 ): Promise<RealizedVerification> {
+  const privateUrl = await resolvePrivateUrlIfAvailable();
+  if (!privateUrl) {
+    return verifyPublicRealizedOutcome(record);
+  }
+
   const baseDate = record.snapshot.base_session_date ?? record.payload.as_of.slice(0, 10);
   const response = await callChronosService<ChronosVerifyResponse>(
+    privateUrl,
     '/verify',
     {
       symbol: record.payload.symbol,
