@@ -266,7 +266,7 @@ Sources range from free (Massive Basic EOD, Yahoo chains, Cboe daily statistics)
 - **At 4:20am:**
   - Use the T-1 close QQQ ATM straddle for the nearest expiry, or its IV, as the baseline.
   - Update it with the fresh overnight ΔVIX (GTH) times a VXN-on-VIX beta, or with the change in an SPX GTH 1-day straddle where a feed exists.
-  - Expected |move| ≈ straddle × ~0.8 for a normal distribution (E|X| = σ·√(2/π)). Equivalently, σ_1d ≈ IV/√252.
+  - For a normal, zero-drift distribution the ATM straddle ≈ E|move| = σ_1d·S·√(2/π) ≈ 0.8·σ_1d·S. So σ_1d ≈ 1.25 × straddle/S, and σ_1d ≈ IV/√252 when working from IV.
 - **On the T-1 close:** the expiring 0DTE straddle at 4pm is nearly worthless. Use the next-day (1DTE) expiry's straddle at the T-1 close, not the 0DTE.
 
 **Implied vs realized spread**
