@@ -205,12 +205,18 @@
       }
     },
 
+    "SimpleReturnPct": {
+      "type": "number",
+      "minimum": -100,
+      "description": "Cumulative simple return in percent. A long position cannot lose more than 100%, so values below -100 are impossible."
+    },
+
     "BinItem": {
       "type": "object",
       "additionalProperties": false,
       "required": ["min_pct", "max_pct", "prob", "cdf"],
       "properties": {
-        "min_pct": { "type": "number" },
+        "min_pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "max_pct": { "type": "number" },
         "prob": { "$ref": "#/$defs/UnitInterval" },
         "cdf": {
@@ -232,22 +238,22 @@
         "quantiles_pct"
       ],
       "properties": {
-        "mean_pct": { "type": "number" },
-        "median_pct": { "type": "number" },
+        "mean_pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "median_pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "std_pct": { "type": "number", "minimum": 0 },
         "prob_positive": { "$ref": "#/$defs/UnitInterval" },
-        "expected_shortfall_5pct": { "type": "number" },
+        "expected_shortfall_5pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "quantiles_pct": {
           "type": "object",
           "additionalProperties": false,
           "required": ["p01", "p05", "p25", "p75", "p95", "p99"],
           "properties": {
-            "p01": { "type": "number" },
-            "p05": { "type": "number" },
-            "p25": { "type": "number" },
-            "p75": { "type": "number" },
-            "p95": { "type": "number" },
-            "p99": { "type": "number" }
+            "p01": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p05": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p25": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p75": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p95": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p99": { "$ref": "#/$defs/SimpleReturnPct" }
           }
         }
       }

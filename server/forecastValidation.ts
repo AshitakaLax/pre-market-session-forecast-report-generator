@@ -10,7 +10,7 @@ import type { ForecastPayload, ForecastRecord, HorizonKey } from '../src/types/f
  *    (JSON Schema draft 2020-12, the language-neutral source of truth).
  * 2. Semantic validation of cross-field rules that JSON Schema cannot express:
  *    probability mass sums to 1, CDF matches cumulative bin mass, bins are
- *    contiguous, quantiles are ordered, strategy weights sum to 1, the audit
+ *    contiguous, underflow mass sits above the -100% floor, quantiles are ordered, strategy weights sum to 1, the audit
  *    covers every horizon, and snapshot/payload agree on the symbol.
  *
  * Every record is checked before it is persisted (see server/storage.ts), so an
@@ -34,6 +34,8 @@ const PROB_TOLERANCE = 0.0005;
 const WEIGHT_TOLERANCE = 0.001;
 /** Tolerance for bin edges and percentage values (stored at 2 decimals). */
 const PCT_TOLERANCE = 0.011;
+/** A long position cannot lose more than 100%: simple returns are bounded below by -100. */
+const SIMPLE_RETURN_FLOOR_PCT = -100;
 
 const HORIZON_KEYS: HorizonKey[] = [
   'tomorrow',
@@ -123,6 +125,12 @@ function semanticPayloadIssues(payload: ForecastPayload, prefix: string): Foreca
     const totalMass = horizon.underflow_prob + binMass + horizon.overflow_prob;
     if (Math.abs(totalMass - 1) > PROB_TOLERANCE) {
       add(base, `probability mass (underflow + bins + overflow) is ${totalMass.toFixed(6)}, expected 1`);
+    }
+
+    // Simple returns cannot fall below -100% (the schema enforces the floor on
+    // each value); underflow mass needs room strictly above that floor.
+    if (horizon.underflow_prob > 0 && bins[0].min_pct <= SIMPLE_RETURN_FLOOR_PCT) {
+      add(`${base}/underflow_prob`, `underflow_prob (${horizon.underflow_prob}) must be 0 when bins[0].min_pct (${bins[0].min_pct}) is at or below the ${SIMPLE_RETURN_FLOOR_PCT}% simple-return floor`);
     }
 
     let running = horizon.underflow_prob;
