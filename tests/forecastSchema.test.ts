@@ -80,6 +80,15 @@ describe('forecast record JSON Schema', () => {
     assert.ok(issuePaths(record).includes('schema:/payload/horizons/next_month/bins'));
   });
 
+  it('rejects NaN and Infinity, which JSON.stringify would silently turn into null', () => {
+    const record = sample();
+    record.snapshot.vix_level = Number.NaN;
+    record.payload.horizons.tomorrow.summary.std_pct = Number.POSITIVE_INFINITY;
+    const paths = issuePaths(record);
+    assert.ok(paths.includes('schema:/snapshot/vix_level'));
+    assert.ok(paths.includes('schema:/payload/horizons/tomorrow/summary/std_pct'));
+  });
+
   it('rejects timestamps without a time zone', () => {
     const record = sample();
     record.created_at = '2026-11-24 04:30:00';
