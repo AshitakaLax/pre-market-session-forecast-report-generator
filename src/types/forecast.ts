@@ -1,3 +1,7 @@
+// These interfaces mirror schemas/forecast-record.schema.json (JSON Schema 2020-12).
+// Change both together: tests/forecastSchema.test.ts fails when they drift apart,
+// and server/storage.ts refuses to persist a record that violates the schema.
+
 export type RegimeType =
   | 'low_vol_uptrend'
   | 'high_vol_downtrend'
