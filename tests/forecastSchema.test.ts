@@ -89,6 +89,35 @@ describe('forecast record JSON Schema', () => {
     assert.ok(paths.includes('schema:/payload/horizons/tomorrow/summary/std_pct'));
   });
 
+  it('rejects simple returns below the -100% floor', () => {
+    const record = sample();
+    const summary = record.payload.horizons.next_year.summary;
+    summary.quantiles_pct.p01 = -115.75;
+    summary.expected_shortfall_5pct = -107.98;
+    summary.mean_pct = -100.01;
+    summary.median_pct = -101;
+    record.payload.horizons.next_year.bins[0].min_pct = -100.5;
+    const paths = issuePaths(record);
+    for (const field of [
+      'summary/quantiles_pct/p01',
+      'summary/expected_shortfall_5pct',
+      'summary/mean_pct',
+      'summary/median_pct',
+      'bins/0/min_pct',
+    ]) {
+      assert.ok(paths.includes(`schema:/payload/horizons/next_year/${field}`), field);
+    }
+  });
+
+  it('accepts a simple return of exactly -100% (total loss)', () => {
+    const record = sample();
+    const q = record.payload.horizons.next_year.summary.quantiles_pct;
+    q.p01 = -100;
+    record.payload.horizons.next_year.summary.expected_shortfall_5pct = -100;
+    assert.ok(q.p05 >= -100);
+    assert.deepEqual(issuePaths(record), []);
+  });
+
   it('rejects timestamps without a time zone', () => {
     const record = sample();
     record.created_at = '2026-11-24 04:30:00';
@@ -127,6 +156,19 @@ describe('forecast record semantic rules', () => {
     const q = record.payload.horizons.tomorrow.summary.quantiles_pct;
     [q.p05, q.p95] = [q.p95, q.p05];
     assert.ok(issuePaths(record).includes('semantic:/payload/horizons/tomorrow/summary'));
+  });
+
+  it('rejects underflow mass when the lowest bin already starts at -100%', () => {
+    const record = sample();
+    const horizon = record.payload.horizons.next_year;
+    assert.ok(horizon.underflow_prob > 0);
+    horizon.bin_width_pct = 20;
+    horizon.bins.forEach((bin, idx) => {
+      bin.min_pct = -100 + idx * 20;
+      bin.max_pct = bin.min_pct + 20;
+    });
+    const paths = issuePaths(record);
+    assert.deepEqual(paths, ['semantic:/payload/horizons/next_year/underflow_prob']);
   });
 
   it('rejects strategy weights that do not sum to 1', () => {

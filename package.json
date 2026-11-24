@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "validate:forecasts": "tsx scripts/validate-forecasts.ts",
-    "schema:example": "tsx scripts/write-schema-example.ts"
+    "schema:example": "tsx scripts/write-schema-example.ts",
+    "reaudit:forecasts": "tsx scripts/reaudit-forecasts.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
