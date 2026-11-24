@@ -10,128 +10,159 @@ import {
 import {
   deleteForecastById,
   getForecastById,
+  readForecasts,
   readForecastsForDisplay,
-  StorageCorruptionError,
   readScheduleConfig,
   saveForecast,
+  StorageCorruptionError,
   writeScheduleConfig,
 } from './server/storage.ts';
+import { FORECAST_RECORD_SCHEMA, validateForecastRecord } from './server/forecastValidation.ts';
+import { easternClockAt } from './server/easternClock.ts';
+import { resolveTradingDayNow } from './server/marketCalendar.ts';
+import { notifyMissedDeadline, notifyValidated } from './server/notify.ts';
+import {
+  createPremarketRunner,
+  pendingSymbols,
+  type SymbolResult,
+} from './server/premarketRunner.ts';
+import { decideScheduledAction, taskTriggerSkipReason } from './server/scheduler.ts';
 import type { CalibrationMode, RunWindow, ScheduleConfig } from './src/types/forecast.ts';
 
 const PORT = 3000;
 
-// Major NYSE/Nasdaq fixed + observed holidays (YYYY-MM-DD in ET)
-const US_MARKET_HOLIDAYS = new Set([
-  '2026-01-01',
-  '2026-01-19',
-  '2026-02-16',
-  '2026-04-03',
-  '2026-05-25',
-  '2026-06-19',
-  '2026-07-03',
-  '2026-09-07',
-  '2026-11-26',
-  '2026-12-25',
-  '2027-01-01',
-  '2027-01-18',
-  '2027-02-15',
-  '2027-03-26',
-  '2027-05-31',
-  '2027-06-18',
-  '2027-07-05',
-  '2027-09-06',
-  '2027-11-25',
-  '2027-12-24',
-]);
+const FORMAT_HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-function getEasternClock(): {
-  dateEt: string;
-  timeEt: string;
-  weekday: string;
-  isTradingDay: boolean;
-} {
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(now);
+const runner = createPremarketRunner({
+  runPipeline: runForecastPipeline,
+  readForecasts,
+  saveForecast,
+});
 
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-  const dateEt = `${get('year')}-${get('month')}-${get('day')}`;
-  const hour = get('hour') === '24' ? '00' : get('hour');
-  const timeEt = `${hour}:${get('minute')}`;
-
-  const weekday = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-  }).format(now);
-
-  const isWeekend = weekday === 'Sat' || weekday === 'Sun';
-  const isHoliday = US_MARKET_HOLIDAYS.has(dateEt);
-
+async function getClock() {
+  const base = easternClockAt();
+  const day = await resolveTradingDayNow(base);
   return {
-    dateEt,
-    timeEt,
-    weekday,
-    isTradingDay: !isWeekend && !isHoliday,
+    ...base,
+    isTradingDay: day.isTradingDay,
+    earlyClose: day.earlyClose,
+    closeEt: day.closeEt,
+    calendarBasis: day.basis,
   };
+}
+
+type Clock = Awaited<ReturnType<typeof getClock>>;
+
+function configuredSymbols(config: ScheduleConfig): string[] {
+  return config.symbols.length > 0 ? config.symbols : ['TQQQ'];
+}
+
+/**
+ * Runs (or reuses) today's validated record for each symbol and records the outcome.
+ * "Attempted" and "succeeded" are tracked separately so failures are retried.
+ */
+async function executeBatch(opts: {
+  symbols: string[];
+  clock: Clock;
+  config: ScheduleConfig;
+  trigger: 'manual' | 'scheduled';
+  label: string;
+  idempotencyKey?: string;
+  force?: boolean;
+}): Promise<SymbolResult[]> {
+  const { symbols, clock, config, label } = opts;
+  const batch = {
+    symbols,
+    dateEt: clock.dateEt,
+    calibrationMode: config.calibration_mode,
+    runWindow: config.run_window,
+    trigger: opts.trigger,
+    idempotencyKey: opts.idempotencyKey,
+    force: opts.force,
+  };
+
+  const needsWork =
+    opts.force || pendingSymbols(readForecasts(), batch).length > 0 || Boolean(opts.idempotencyKey);
+  if (needsWork) {
+    const cur = readScheduleConfig();
+    writeScheduleConfig({
+      ...cur,
+      last_scheduled_run_date_et: clock.dateEt,
+      attempts_date_et: clock.dateEt,
+      attempts_today: cur.attempts_date_et === clock.dateEt ? cur.attempts_today + 1 : 1,
+      last_attempt_at: new Date().toISOString(),
+      last_run_status: `${label} running at ${clock.timeEt} ET...`,
+    });
+  }
+
+  const results = await runner.runBatch(batch);
+  const failed = results.filter((r) => r.status === 'failed');
+  const latest = readScheduleConfig();
+  const allConfiguredDone =
+    pendingSymbols(readForecasts(), { ...batch, symbols: configuredSymbols(latest) }).length === 0;
+
+  if (failed.length === 0 && allConfiguredDone) {
+    writeScheduleConfig({
+      ...latest,
+      last_successful_run_date_et: clock.dateEt,
+      last_run_status: `${label} validated ${symbols.join(', ')} for ${clock.dateEt}`,
+    });
+    if (results.some((r) => r.status === 'created')) {
+      await notifyValidated(clock.dateEt, symbols);
+    }
+  } else if (failed.length > 0) {
+    writeScheduleConfig({
+      ...latest,
+      last_run_status: `${label} failed at ${clock.dateEt} ${clock.timeEt} ET: ${failed
+        .map((f) => `${f.symbol}: ${f.error}`)
+        .join('; ')}`,
+    });
+  }
+  return results;
 }
 
 let schedulerRunning = false;
 
 async function checkAndRunScheduledForecasts(): Promise<void> {
   if (schedulerRunning) return;
-  let config;
-  try {
-    config = readScheduleConfig();
-  } catch (err) {
-    console.error(`[scheduler] Skipping run: ${err instanceof Error ? err.message : err}`);
-    return;
-  }
-  if (!config.enabled) return;
-
-  const clock = getEasternClock();
-  if (config.trading_days_only && !clock.isTradingDay) return;
-  if (config.last_scheduled_run_date_et === clock.dateEt) return;
-  if (clock.timeEt < config.time_et) return;
-
   schedulerRunning = true;
   try {
-    writeScheduleConfig({
-      ...config,
-      last_scheduled_run_date_et: clock.dateEt,
-      last_run_status: `Running scheduled pre-market batch at ${clock.timeEt} ET...`,
-    });
+    const config = readScheduleConfig();
+    if (!config.enabled) return;
 
-    const symbols = config.symbols.length > 0 ? config.symbols : ['TQQQ'];
-    for (const sym of symbols) {
-      const record = await runForecastPipeline({
-        symbol: sym,
+    const clock = await getClock();
+    const symbols = configuredSymbols(config);
+    const decision = decideScheduledAction({
+      config,
+      dateEt: clock.dateEt,
+      timeEt: clock.timeEt,
+      nowMs: Date.now(),
+      isTradingDay: clock.isTradingDay,
+      pendingSymbols: pendingSymbols(readForecasts(), {
+        symbols,
+        dateEt: clock.dateEt,
         calibrationMode: config.calibration_mode,
         runWindow: config.run_window,
-        trigger: 'scheduled',
-      });
-      saveForecast(record);
-    }
+      }),
+    });
 
-    const latest = readScheduleConfig();
-    writeScheduleConfig({
-      ...latest,
-      last_scheduled_run_date_et: clock.dateEt,
-      last_run_status: `Completed ${symbols.join(', ')} at ${clock.dateEt} ${clock.timeEt} ET`,
-    });
+    if (decision.action === 'run') {
+      await executeBatch({ symbols, clock, config, trigger: 'scheduled', label: 'Scheduled batch' });
+    } else if (decision.action === 'alert_missed') {
+      const missing = pendingSymbols(readForecasts(), {
+        symbols,
+        dateEt: clock.dateEt,
+        calibrationMode: config.calibration_mode,
+        runWindow: config.run_window,
+      });
+      writeScheduleConfig({
+        ...readScheduleConfig(),
+        missed_alert_date_et: clock.dateEt,
+      });
+      await notifyMissedDeadline(clock.dateEt, missing, readScheduleConfig().last_run_status);
+    }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Scheduled run failed';
-    const latest = readScheduleConfig();
-    writeScheduleConfig({
-      ...latest,
-      last_run_status: `Failed at ${clock.dateEt} ${clock.timeEt} ET: ${message}`,
-    });
+    console.error('Scheduler tick failed:', err);
   } finally {
     schedulerRunning = false;
   }
@@ -142,7 +173,7 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
 
   app.get('/api/health', async (_req, res) => {
-    const clock = getEasternClock();
+    const clock = await getClock();
     const chronos = await getActiveChronosHealth();
 
     res.json({
@@ -155,6 +186,17 @@ async function startServer() {
 
   app.get('/api/forecasts', (_req, res) => {
     res.json(readForecastsForDisplay());
+  });
+
+  // JSON Schema (draft 2020-12) that every persisted forecast record satisfies.
+  app.get('/api/schemas/forecast-record', (_req, res) => {
+    res.type('application/schema+json').send(JSON.stringify(FORECAST_RECORD_SCHEMA, null, 2));
+  });
+
+  // Validate an arbitrary forecast record (schema + cross-field probability rules).
+  app.post('/api/forecasts/validate', (req, res) => {
+    const outcome = validateForecastRecord(req.body);
+    res.status(outcome.valid ? 200 : 422).json(outcome);
   });
 
   app.get('/api/forecasts/:id', (req, res) => {
@@ -254,18 +296,22 @@ async function startServer() {
     }
   });
 
-  // Headless scheduled task endpoint for Cloud Scheduler / GitHub Actions / cron
-  app.post('/api/tasks/premarket', async (req, res) => {
+  function authorizeTask(req: express.Request, res: express.Response): boolean {
     const cronSecret = process.env.CRON_SECRET;
-    if (cronSecret) {
-      const auth = req.headers.authorization;
-      if (auth !== `Bearer ${cronSecret}`) {
-        res.status(401).json({ error: 'Unauthorized task trigger.' });
-        return;
-      }
+    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
+      res.status(401).json({ error: 'Unauthorized task trigger.' });
+      return false;
     }
+    return true;
+  }
 
-    const clock = getEasternClock();
+  // Headless scheduled task endpoint for Cloud Scheduler / GitHub Actions / cron.
+  // Idempotent per ET date + symbol: a repeat trigger returns the existing validated
+  // record. Non-2xx on failure so the scheduler's own retry policy kicks in.
+  app.post('/api/tasks/premarket', async (req, res) => {
+    if (!authorizeTask(req, res)) return;
+
+    const clock = await getClock();
     let config: ScheduleConfig;
     try {
       config = readScheduleConfig();
@@ -275,77 +321,97 @@ async function startServer() {
     }
     const force = req.body?.force === true || req.query.force === '1';
 
-    if (!force && config.trading_days_only && !clock.isTradingDay) {
-      res.json({
-        skipped: true,
-        reason: `Market closed (${clock.dateEt} ${clock.weekday} ET). Pass force=true to override.`,
-        eastern_clock: clock,
-      });
+    const skipReason = taskTriggerSkipReason({
+      config,
+      dateEt: clock.dateEt,
+      weekday: clock.weekday,
+      timeEt: clock.timeEt,
+      isTradingDay: clock.isTradingDay,
+      force,
+    });
+    if (skipReason) {
+      res.json({ skipped: true, reason: skipReason, eastern_clock: clock });
       return;
     }
 
-    const symbols =
+    const symbols: string[] =
       Array.isArray(req.body?.symbols) && req.body.symbols.length > 0
         ? req.body.symbols.map((s: unknown) => String(s).trim().toUpperCase()).filter(Boolean)
-        : config.symbols.length > 0
-          ? config.symbols
-          : ['TQQQ'];
+        : configuredSymbols(config);
+
+    const headerKey = req.headers['x-cloudscheduler-scheduletime'] ?? req.headers['idempotency-key'];
+    const idempotencyKey = (Array.isArray(headerKey) ? headerKey[0] : headerKey)?.slice(0, 200);
 
     try {
-      const results = [];
-      for (const sym of symbols) {
-        const record = await runForecastPipeline({
-          symbol: sym,
-          calibrationMode: config.calibration_mode,
-          runWindow: config.run_window,
-          trigger: 'scheduled',
-        });
-        saveForecast(record);
-        results.push({
-          id: record.id,
-          symbol: record.payload.symbol,
-          as_of: record.payload.as_of,
-          base_price: record.payload.base_price,
-          regime: record.payload.execution_signals.regime,
-          kelly_fraction_cap: record.payload.execution_signals.kelly_fraction_cap,
-          tomorrow_mean_pct: record.payload.horizons.tomorrow.summary.mean_pct,
-          tomorrow_prob_positive: record.payload.horizons.tomorrow.summary.prob_positive,
-        });
-      }
-
-      writeScheduleConfig({
-        ...config,
-        last_scheduled_run_date_et: clock.dateEt,
-        last_run_status: `External task completed ${symbols.join(', ')} at ${clock.dateEt} ${clock.timeEt} ET`,
+      const results = await executeBatch({
+        symbols,
+        clock,
+        config,
+        trigger: 'scheduled',
+        label: 'External task',
+        idempotencyKey,
+        force,
       });
-
-      res.json({
-        completed: true,
+      const failed = results.filter((r) => r.status === 'failed');
+      const body = {
+        completed: failed.length === 0,
+        already_complete: results.every((r) => r.status === 'existing'),
+        idempotency_key: idempotencyKey ?? null,
         eastern_clock: clock,
-        forecasts: results,
-      });
+        forecasts: results
+          .filter((r) => r.record)
+          .map((r) => ({
+            status: r.status,
+            id: r.record!.id,
+            symbol: r.record!.payload.symbol,
+            as_of: r.record!.payload.as_of,
+            base_price: r.record!.payload.base_price,
+            regime: r.record!.payload.execution_signals.regime,
+            kelly_fraction_cap: r.record!.payload.execution_signals.kelly_fraction_cap,
+            tomorrow_mean_pct: r.record!.payload.horizons.tomorrow.summary.mean_pct,
+            tomorrow_prob_positive: r.record!.payload.horizons.tomorrow.summary.prob_positive,
+          })),
+        failures: failed.map((f) => ({ symbol: f.symbol, error: f.error })),
+      };
+      res.status(failed.length === 0 ? 200 : 500).json(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Scheduled task failed.';
       if (err instanceof StorageCorruptionError) {
         res.status(503).json({ error: message });
         return;
       }
-      writeScheduleConfig({
-        ...config,
-        last_run_status: `External task failed at ${clock.dateEt} ${clock.timeEt} ET: ${message}`,
-      });
       res.status(500).json({ error: message });
     }
   });
 
-  app.get('/api/schedule', (_req, res) => {
-    res.json({
-      schedule: readScheduleConfig(),
-      eastern_clock: getEasternClock(),
+  // Read-only: does every configured symbol have a validated record for today (ET)?
+  app.get('/api/tasks/premarket/status', async (req, res) => {
+    if (!authorizeTask(req, res)) return;
+    const clock = await getClock();
+    const config = readScheduleConfig();
+    const pending = pendingSymbols(readForecasts(), {
+      symbols: configuredSymbols(config),
+      dateEt: clock.dateEt,
+      calibrationMode: config.calibration_mode,
+      runWindow: config.run_window,
+    });
+    res.status(pending.length === 0 || !clock.isTradingDay ? 200 : 503).json({
+      date_et: clock.dateEt,
+      trading_day: clock.isTradingDay,
+      validated: pending.length === 0,
+      pending_symbols: pending,
+      last_run_status: config.last_run_status,
     });
   });
 
-  app.put('/api/schedule', (req, res) => {
+  app.get('/api/schedule', async (_req, res) => {
+    res.json({
+      schedule: readScheduleConfig(),
+      eastern_clock: await getClock(),
+    });
+  });
+
+  app.put('/api/schedule', async (req, res) => {
     const body = req.body as Partial<ScheduleConfig>;
     const current = readScheduleConfig();
     const cleanedSymbols = Array.isArray(body.symbols)
@@ -356,11 +422,24 @@ async function startServer() {
       : current.symbols;
 
     const timeEt =
-      typeof body.time_et === 'string' && /^\d{2}:\d{2}$/.test(body.time_et)
+      typeof body.time_et === 'string' && FORMAT_HHMM.test(body.time_et)
         ? body.time_et
         : current.time_et;
+    const cutoffEt =
+      typeof body.retry_cutoff_et === 'string' && FORMAT_HHMM.test(body.retry_cutoff_et)
+        ? body.retry_cutoff_et
+        : current.retry_cutoff_et;
+
+    if (timeEt >= cutoffEt) {
+      res.status(400).json({
+        error: `Start time (${timeEt} ET) must be before the retry cutoff (${cutoffEt} ET).`,
+      });
+      return;
+    }
 
     const updated = writeScheduleConfig({
+      ...current,
+      retry_cutoff_et: cutoffEt,
       enabled: typeof body.enabled === 'boolean' ? body.enabled : current.enabled,
       time_et: timeEt,
       trading_days_only:
@@ -378,13 +457,11 @@ async function startServer() {
         body.run_window === 'eod'
           ? body.run_window
           : current.run_window,
-      last_scheduled_run_date_et: current.last_scheduled_run_date_et,
-      last_run_status: current.last_run_status,
     });
 
     res.json({
       schedule: updated,
-      eastern_clock: getEasternClock(),
+      eastern_clock: await getClock(),
     });
   });
 

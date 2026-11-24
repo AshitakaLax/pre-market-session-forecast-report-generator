@@ -1,0 +1,642 @@
+{
+  "id": "7f9c2a4e-5b1d-4c3e-9a8f-0d2e6b7c1a90",
+  "created_at": "2026-11-24T09:25:00.000Z",
+  "trigger": "scheduled",
+  "calibration_mode": "leveraged_scaled",
+  "run_window": "pre_market",
+  "idempotency_key": "2026-11-24T09:05:00Z",
+  "payload": {
+    "schema_version": "1.2.0",
+    "symbol": "TQQQ",
+    "as_of": "2026-11-24T09:25:00.000Z",
+    "base_price": 49.1,
+    "return_type": "simple_pct",
+    "model": "amazon/chronos-2 (fixture)",
+    "execution_signals": {
+      "data_quality": {
+        "confidence_score": 0.8,
+        "source_coverage": "mixed",
+        "missing_inputs": [
+          "put_call_ratio"
+        ]
+      },
+      "regime": "event_driven",
+      "volatility_state": "elevated",
+      "implied_vs_realized_vol_spread_pct": -4.25,
+      "expected_1d_move_pct": 5.4,
+      "skew_bias": "bearish_tail",
+      "overnight_gap_risk": "moderate",
+      "kelly_fraction_cap": 0,
+      "next_day_catalysts": [
+        {
+          "time_utc": "2026-11-24T13:30:00.000Z",
+          "event": "US advance retail sales (Oct)",
+          "impact": "high"
+        }
+      ],
+      "suggested_strategy_weights": {
+        "momentum_trend": 0,
+        "mean_reversion": 0,
+        "volatility_harvesting": 0,
+        "cash_defensive": 1
+      }
+    },
+    "horizons": {
+      "tomorrow": {
+        "label": "Tomorrow (1D)",
+        "trading_days": 1,
+        "bin_width_pct": 1.5,
+        "underflow_prob": 0.0927,
+        "overflow_prob": 0.0956,
+        "bins": [
+          {
+            "min_pct": -7.5,
+            "max_pct": -6,
+            "prob": 0.0516,
+            "cdf": 0.1443
+          },
+          {
+            "min_pct": -6,
+            "max_pct": -4.5,
+            "prob": 0.0681,
+            "cdf": 0.2124
+          },
+          {
+            "min_pct": -4.5,
+            "max_pct": -3,
+            "prob": 0.0839,
+            "cdf": 0.2963
+          },
+          {
+            "min_pct": -3,
+            "max_pct": -1.5,
+            "prob": 0.0965,
+            "cdf": 0.3928
+          },
+          {
+            "min_pct": -1.5,
+            "max_pct": 0,
+            "prob": 0.1037,
+            "cdf": 0.4965
+          },
+          {
+            "min_pct": 0,
+            "max_pct": 1.5,
+            "prob": 0.1039,
+            "cdf": 0.6004
+          },
+          {
+            "min_pct": 1.5,
+            "max_pct": 3,
+            "prob": 0.0972,
+            "cdf": 0.6976
+          },
+          {
+            "min_pct": 3,
+            "max_pct": 4.5,
+            "prob": 0.0849,
+            "cdf": 0.7825
+          },
+          {
+            "min_pct": 4.5,
+            "max_pct": 6,
+            "prob": 0.0692,
+            "cdf": 0.8517
+          },
+          {
+            "min_pct": 6,
+            "max_pct": 7.5,
+            "prob": 0.0527,
+            "cdf": 0.9044
+          }
+        ],
+        "summary": {
+          "mean_pct": 0.05,
+          "median_pct": 0.05,
+          "std_pct": 5.16,
+          "prob_positive": 0.5035,
+          "expected_shortfall_5pct": -9.53,
+          "quantiles_pct": {
+            "p01": -10.3,
+            "p05": -8.28,
+            "p25": -3.83,
+            "p75": 3.93,
+            "p95": 8.33,
+            "p99": 10.38
+          }
+        }
+      },
+      "next_week": {
+        "label": "Next Week (5D)",
+        "trading_days": 5,
+        "bin_width_pct": 3,
+        "underflow_prob": 0.1158,
+        "overflow_prob": 0.1236,
+        "bins": [
+          {
+            "min_pct": -15,
+            "max_pct": -12,
+            "prob": 0.0525,
+            "cdf": 0.1683
+          },
+          {
+            "min_pct": -12,
+            "max_pct": -9,
+            "prob": 0.0658,
+            "cdf": 0.2341
+          },
+          {
+            "min_pct": -9,
+            "max_pct": -6,
+            "prob": 0.0779,
+            "cdf": 0.312
+          },
+          {
+            "min_pct": -6,
+            "max_pct": -3,
+            "prob": 0.0874,
+            "cdf": 0.3994
+          },
+          {
+            "min_pct": -3,
+            "max_pct": 0,
+            "prob": 0.0928,
+            "cdf": 0.4922
+          },
+          {
+            "min_pct": 0,
+            "max_pct": 3,
+            "prob": 0.0932,
+            "cdf": 0.5854
+          },
+          {
+            "min_pct": 3,
+            "max_pct": 6,
+            "prob": 0.0886,
+            "cdf": 0.674
+          },
+          {
+            "min_pct": 6,
+            "max_pct": 9,
+            "prob": 0.0798,
+            "cdf": 0.7538
+          },
+          {
+            "min_pct": 9,
+            "max_pct": 12,
+            "prob": 0.0679,
+            "cdf": 0.8217
+          },
+          {
+            "min_pct": 12,
+            "max_pct": 15,
+            "prob": 0.0547,
+            "cdf": 0.8764
+          }
+        ],
+        "summary": {
+          "mean_pct": 0.22,
+          "median_pct": 0.25,
+          "std_pct": 11,
+          "prob_positive": 0.5078,
+          "expected_shortfall_5pct": -19.53,
+          "quantiles_pct": {
+            "p01": -21.02,
+            "p05": -17.11,
+            "p25": -8.39,
+            "p75": 8.86,
+            "p95": 17.31,
+            "p99": 21.41
+          }
+        }
+      },
+      "next_month": {
+        "label": "Next Month (21D)",
+        "trading_days": 21,
+        "bin_width_pct": 6,
+        "underflow_prob": 0.1173,
+        "overflow_prob": 0.1339,
+        "bins": [
+          {
+            "min_pct": -30,
+            "max_pct": -24,
+            "prob": 0.0515,
+            "cdf": 0.1688
+          },
+          {
+            "min_pct": -24,
+            "max_pct": -18,
+            "prob": 0.0641,
+            "cdf": 0.2329
+          },
+          {
+            "min_pct": -18,
+            "max_pct": -12,
+            "prob": 0.0758,
+            "cdf": 0.3087
+          },
+          {
+            "min_pct": -12,
+            "max_pct": -6,
+            "prob": 0.0849,
+            "cdf": 0.3936
+          },
+          {
+            "min_pct": -6,
+            "max_pct": 0,
+            "prob": 0.0903,
+            "cdf": 0.4839
+          },
+          {
+            "min_pct": 0,
+            "max_pct": 6,
+            "prob": 0.0913,
+            "cdf": 0.5752
+          },
+          {
+            "min_pct": 6,
+            "max_pct": 12,
+            "prob": 0.0873,
+            "cdf": 0.6625
+          },
+          {
+            "min_pct": 12,
+            "max_pct": 18,
+            "prob": 0.0793,
+            "cdf": 0.7418
+          },
+          {
+            "min_pct": 18,
+            "max_pct": 24,
+            "prob": 0.0684,
+            "cdf": 0.8102
+          },
+          {
+            "min_pct": 24,
+            "max_pct": 30,
+            "prob": 0.0559,
+            "cdf": 0.8661
+          }
+        ],
+        "summary": {
+          "mean_pct": 0.91,
+          "median_pct": 1.06,
+          "std_pct": 22.25,
+          "prob_positive": 0.5161,
+          "expected_shortfall_5pct": -38.68,
+          "quantiles_pct": {
+            "p01": -41.5,
+            "p05": -34.22,
+            "p25": -16.65,
+            "p75": 18.72,
+            "p95": 35.02,
+            "p99": 43.23
+          }
+        }
+      },
+      "next_quarter": {
+        "label": "Next Quarter (63D)",
+        "trading_days": 63,
+        "bin_width_pct": 9,
+        "underflow_prob": 0.1436,
+        "overflow_prob": 0.1775,
+        "bins": [
+          {
+            "min_pct": -45,
+            "max_pct": -36,
+            "prob": 0.0498,
+            "cdf": 0.1934
+          },
+          {
+            "min_pct": -36,
+            "max_pct": -27,
+            "prob": 0.0591,
+            "cdf": 0.2525
+          },
+          {
+            "min_pct": -27,
+            "max_pct": -18,
+            "prob": 0.0675,
+            "cdf": 0.32
+          },
+          {
+            "min_pct": -18,
+            "max_pct": -9,
+            "prob": 0.0741,
+            "cdf": 0.3941
+          },
+          {
+            "min_pct": -9,
+            "max_pct": 0,
+            "prob": 0.0781,
+            "cdf": 0.4722
+          },
+          {
+            "min_pct": 0,
+            "max_pct": 9,
+            "prob": 0.0793,
+            "cdf": 0.5515
+          },
+          {
+            "min_pct": 9,
+            "max_pct": 18,
+            "prob": 0.0772,
+            "cdf": 0.6287
+          },
+          {
+            "min_pct": 18,
+            "max_pct": 27,
+            "prob": 0.0723,
+            "cdf": 0.701
+          },
+          {
+            "min_pct": 27,
+            "max_pct": 36,
+            "prob": 0.0651,
+            "cdf": 0.7661
+          },
+          {
+            "min_pct": 36,
+            "max_pct": 45,
+            "prob": 0.0564,
+            "cdf": 0.8225
+          }
+        ],
+        "summary": {
+          "mean_pct": 2.53,
+          "median_pct": 3.16,
+          "std_pct": 35.68,
+          "prob_positive": 0.5278,
+          "expected_shortfall_5pct": -58.31,
+          "quantiles_pct": {
+            "p01": -62.03,
+            "p05": -52.51,
+            "p25": -27.38,
+            "p75": 33.77,
+            "p95": 54.69,
+            "p99": 67
+          }
+        }
+      },
+      "next_year": {
+        "label": "Next Year (252D)",
+        "trading_days": 252,
+        "bin_width_pct": 15,
+        "underflow_prob": 0.1665,
+        "overflow_prob": 0.2452,
+        "bins": [
+          {
+            "min_pct": -75,
+            "max_pct": -60,
+            "prob": 0.0447,
+            "cdf": 0.2112
+          },
+          {
+            "min_pct": -60,
+            "max_pct": -45,
+            "prob": 0.051,
+            "cdf": 0.2622
+          },
+          {
+            "min_pct": -45,
+            "max_pct": -30,
+            "prob": 0.0567,
+            "cdf": 0.3189
+          },
+          {
+            "min_pct": -30,
+            "max_pct": -15,
+            "prob": 0.0613,
+            "cdf": 0.3802
+          },
+          {
+            "min_pct": -15,
+            "max_pct": 0,
+            "prob": 0.0645,
+            "cdf": 0.4447
+          },
+          {
+            "min_pct": 0,
+            "max_pct": 15,
+            "prob": 0.0658,
+            "cdf": 0.5105
+          },
+          {
+            "min_pct": 15,
+            "max_pct": 30,
+            "prob": 0.0657,
+            "cdf": 0.5762
+          },
+          {
+            "min_pct": 30,
+            "max_pct": 45,
+            "prob": 0.0636,
+            "cdf": 0.6398
+          },
+          {
+            "min_pct": 45,
+            "max_pct": 60,
+            "prob": 0.06,
+            "cdf": 0.6998
+          },
+          {
+            "min_pct": 60,
+            "max_pct": 75,
+            "prob": 0.055,
+            "cdf": 0.7548
+          }
+        ],
+        "summary": {
+          "mean_pct": 9.16,
+          "median_pct": 12.61,
+          "std_pct": 63.05,
+          "prob_positive": 0.5553,
+          "expected_shortfall_5pct": -91.04,
+          "quantiles_pct": {
+            "p01": -94.04,
+            "p05": -86.46,
+            "p25": -48.59,
+            "p75": 73.69,
+            "p95": 95.27,
+            "p99": 115.79
+          }
+        }
+      }
+    }
+  },
+  "snapshot": {
+    "symbol": "TQQQ",
+    "underlying_symbol": "QQQ",
+    "leverage_factor": 3,
+    "base_session_date": "2026-11-23",
+    "as_of_utc": "2026-11-24T09:25:00.000Z",
+    "market_session_phase": "pre_market",
+    "prev_close": 49.1,
+    "premarket_open_4am": 49.32,
+    "premarket_window_start_et": "04:00",
+    "premarket_window_end_et": "04:05",
+    "premarket_window_high": 49.6,
+    "premarket_window_low": 49.05,
+    "premarket_window_change_pct": 0.45,
+    "premarket_window_volume": 182400,
+    "pre_market_or_latest_price": 49.41,
+    "pre_market_change_pct": 0.63,
+    "intraday_high": 50.44,
+    "intraday_low": 47.31,
+    "five_day_return_pct": -7.41,
+    "twenty_day_return_pct": -28.25,
+    "overnight_futures_symbol": "NQ=F",
+    "overnight_futures_change_pct": -0.83,
+    "futures_daily_change_pct": 1.12,
+    "vix_level": 26.62,
+    "vix_overnight_level": 27.4,
+    "vxn_level": 36.31,
+    "rvx_level": null,
+    "vix9d_level": 27.9,
+    "vix3m_level": 25.4,
+    "symbol_iv_pct": 108.93,
+    "iv_rank_pct": 81,
+    "put_call_ratio": 0.92,
+    "realized_vol_20d_pct": 139.75,
+    "us_2y_yield_pct": 4.31,
+    "us_10y_yield_pct": 4.92,
+    "dxy_level": 104.25,
+    "wti_crude_usd": 79.9,
+    "fed_watch_summary": "Fixture: 62% probability of no change at the next FOMC meeting.",
+    "key_headlines": [
+      "Fixture headline: Nasdaq futures edge higher ahead of retail sales."
+    ],
+    "next_day_catalysts": [
+      {
+        "time_utc": "2026-11-24T13:30:00.000Z",
+        "event": "US advance retail sales (Oct)",
+        "impact": "high"
+      }
+    ],
+    "missing_inputs": [
+      "put_call_ratio"
+    ],
+    "confidence_score": 0.8,
+    "source_coverage": "mixed",
+    "raw_research_notes": "Synthetic fixture used by tests/forecastSchema.test.ts.",
+    "input_observations": [
+      {
+        "field": "overnight_futures_change_pct",
+        "source": "yahoo_chart_1m",
+        "ticker": "NQ=F",
+        "kind": "intraday_bar",
+        "observed_at": "2026-11-24T09:10:00.000Z",
+        "session_date": "2026-11-24",
+        "reference_observed_at": "2026-11-23T20:59:00.000Z"
+      },
+      {
+        "field": "vix_overnight_level",
+        "source": "yahoo_chart_1m",
+        "ticker": "^VIX",
+        "kind": "intraday_bar",
+        "observed_at": "2026-11-24T09:05:00.000Z",
+        "session_date": "2026-11-24",
+        "reference_observed_at": null
+      },
+      {
+        "field": "vix_level",
+        "source": "yahoo_chart_1d",
+        "ticker": "^VIX",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      },
+      {
+        "field": "vix9d_level",
+        "source": "cboe_daily_csv",
+        "ticker": "VIX9D",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      },
+      {
+        "field": "iv_rank_pct",
+        "source": "cboe_daily_csv",
+        "ticker": "VXN",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      }
+    ]
+  },
+  "sources": [
+    {
+      "title": "Yahoo Finance daily history: TQQQ",
+      "uri": "https://finance.yahoo.com/quote/TQQQ/",
+      "domain": "finance.yahoo.com"
+    }
+  ],
+  "audit": {
+    "audited_at": "2026-11-24T09:25:01.000Z",
+    "all_passed": true,
+    "strategy_weight_raw_sum": 1,
+    "strategy_weight_reconciled_sum": 1,
+    "horizons": [
+      {
+        "horizon": "tomorrow",
+        "raw_prob_sum": 1,
+        "reconciled_prob_sum": 1,
+        "cdf_monotonic": true,
+        "quantiles_coherent": true,
+        "adjustment_applied_bp": 0
+      },
+      {
+        "horizon": "next_week",
+        "raw_prob_sum": 1,
+        "reconciled_prob_sum": 1,
+        "cdf_monotonic": true,
+        "quantiles_coherent": true,
+        "adjustment_applied_bp": 0
+      },
+      {
+        "horizon": "next_month",
+        "raw_prob_sum": 1,
+        "reconciled_prob_sum": 1,
+        "cdf_monotonic": true,
+        "quantiles_coherent": true,
+        "adjustment_applied_bp": 1
+      },
+      {
+        "horizon": "next_quarter",
+        "raw_prob_sum": 1,
+        "reconciled_prob_sum": 1,
+        "cdf_monotonic": true,
+        "quantiles_coherent": true,
+        "adjustment_applied_bp": 1
+      },
+      {
+        "horizon": "next_year",
+        "raw_prob_sum": 1,
+        "reconciled_prob_sum": 1,
+        "cdf_monotonic": true,
+        "quantiles_coherent": true,
+        "adjustment_applied_bp": -2
+      }
+    ]
+  },
+  "verification": {
+    "verified_at": "2026-11-24T21:15:00.000Z",
+    "target_horizon": "tomorrow",
+    "actual_close_price": 50.02,
+    "actual_return_pct": 1.87,
+    "brier_score": 0.2116,
+    "within_iqr_p25_p75": true,
+    "within_90_p05_p95": true,
+    "notes": "Fixture verification.",
+    "sources": [
+      {
+        "title": "Yahoo Finance adjusted close: TQQQ",
+        "uri": "https://finance.yahoo.com/quote/TQQQ/history/",
+        "domain": "finance.yahoo.com"
+      }
+    ]
+  }
+}

@@ -16,3 +16,5 @@ chronos_service/walk_forward_results/
 # Storage backups
 data/*.bak
 data/*.tmp
+# Cached exchange calendar fetched from the Chronos service
+data/market_calendar.json

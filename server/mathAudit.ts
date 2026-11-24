@@ -8,6 +8,7 @@ import type {
   MathAuditReport,
   StrategyWeights,
 } from '../src/types/forecast.ts';
+import { FORECAST_SCHEMA_VERSION } from '../src/types/forecast.ts';
 
 export interface HorizonSpec {
   key: HorizonKey;
@@ -37,16 +38,29 @@ export function buildExpectedBins(
   return bins;
 }
 
+/**
+ * Simple returns on a long position are bounded below by -100% (total loss).
+ * Every simple-return value this module emits (bin edges, quantiles, moments,
+ * expected shortfall) must stay at or above this floor.
+ */
+export const SIMPLE_RETURN_FLOOR_PCT = -100;
+
+/**
+ * Widest allowed bin. The template spans 5 bins below zero, so this keeps the
+ * lowest bin edge at -95% and leaves room for the log-space underflow tail.
+ */
+export const MAX_BIN_WIDTH_PCT = 19;
+
 export function getBinWidthForSymbol(
   baseWidth: number,
   leverageFactor: number,
   calibrationMode: CalibrationMode
 ): number {
   if (calibrationMode === 'original_1x') {
-    return baseWidth;
+    return Math.min(baseWidth, MAX_BIN_WIDTH_PCT);
   }
   const scale = Math.max(1, leverageFactor);
-  return Number((baseWidth * scale).toFixed(2));
+  return Number(Math.min(baseWidth * scale, MAX_BIN_WIDTH_PCT).toFixed(2));
 }
 
 function round4(n: number): number {
@@ -55,6 +69,45 @@ function round4(n: number): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function tailScaleFor(binWidthPct: number): number {
+  return Math.max(binWidthPct * 0.85, 0.5);
+}
+
+/**
+ * Left (underflow) tail below `firstMin`, modelled on log returns so it can
+ * never cross the -100% simple-return floor.
+ *
+ * With U ~ Uniform(0, underflowProb] the tail is
+ *   ln(1 + X/100) = ln(1 + firstMin/100) - s * ln(underflowProb / U)
+ * i.e. X = (100 + firstMin) * (U / underflowProb)^s - 100, which is > -100 for
+ * every U > 0. The log-space scale s = tailScale / (100 + firstMin) matches the
+ * slope of the previous simple-return exponential tail at firstMin, so narrow
+ * (short-horizon, unlevered) tails are practically unchanged while wide
+ * leveraged tails bend towards -100% instead of passing through it.
+ */
+interface LeftTail {
+  /** Wealth multiple at firstMin, in percent: 100 + firstMin (> 0). */
+  base: number;
+  /** Log-space tail scale s. */
+  s: number;
+}
+
+function leftTail(firstMin: number, binWidthPct: number): LeftTail {
+  const base = Math.max(1e-6, firstMin - SIMPLE_RETURN_FLOOR_PCT);
+  return { base, s: tailScaleFor(binWidthPct) / base };
+}
+
+/** Quantile at relative tail rank r = U / underflowProb in (0, 1]. */
+function leftTailQuantile(tail: LeftTail, r: number): number {
+  return tail.base * Math.pow(r, tail.s) + SIMPLE_RETURN_FLOOR_PCT;
+}
+
+/** E[X | U / underflowProb <= c] for c in (0, 1]; c = 1 is the whole-tail mean. */
+function leftTailConditionalMean(tail: LeftTail, c: number): number {
+  // E[r^s | r ~ Uniform(0, c)] = c^s / (1 + s)
+  return (tail.base * Math.pow(c, tail.s)) / (1 + tail.s) + SIMPLE_RETURN_FLOOR_PCT;
 }
 
 function interpolateQuantile(
@@ -69,10 +122,9 @@ function interpolateQuantile(
 
   if (q <= underflowProb) {
     if (underflowProb <= 0) return firstMin;
-    // Exponential tail extension below firstMin
-    const tailScale = Math.max(binWidthPct * 0.85, 0.5);
+    // Log-space tail extension below firstMin (bounded below by -100%)
     const ratio = Math.max(1e-4, q / underflowProb);
-    return firstMin - tailScale * Math.log(1 / ratio);
+    return leftTailQuantile(leftTail(firstMin, binWidthPct), ratio);
   }
 
   let prevCdf = underflowProb;
@@ -86,7 +138,7 @@ function interpolateQuantile(
   }
 
   if (overflowProb <= 0) return lastMax;
-  const tailScale = Math.max(binWidthPct * 0.85, 0.5);
+  const tailScale = tailScaleFor(binWidthPct);
   const rem = Math.max(1e-4, (1 - q) / overflowProb);
   return lastMax + tailScale * Math.log(1 / rem);
 }
@@ -97,22 +149,21 @@ function computeExpectedShortfall5Pct(
   binWidthPct: number
 ): number {
   const alpha = 0.05;
-  const tailScale = Math.max(binWidthPct * 0.85, 0.5);
   const firstMin = bins[0].min_pct;
+  const tail = leftTail(firstMin, binWidthPct);
 
   if (underflowProb >= alpha) {
-    // Conditional mean inside exponential left tail from 0 to alpha
-    // E[X | U <= alpha] where U ~ Uniform(0, underflowProb), X = firstMin - tailScale * ln(underflowProb / U)
-    // Integral_0^alpha (firstMin - tailScale * ln(underflowProb/u)) du / alpha = firstMin - tailScale * (ln(underflowProb/alpha) + 1)
-    return firstMin - tailScale * (Math.log(underflowProb / alpha) + 1);
+    // Conditional mean of the log-space left tail over U in (0, alpha]:
+    // E[X | U <= alpha] = (100 + firstMin) * (alpha / underflowProb)^s / (1 + s) - 100
+    return leftTailConditionalMean(tail, alpha / underflowProb);
   }
 
   let massAccumulated = 0;
   let weightedSum = 0;
 
   if (underflowProb > 0) {
-    // Average of entire underflow tail: firstMin - tailScale
-    weightedSum += underflowProb * (firstMin - tailScale);
+    // Mean of the entire underflow tail
+    weightedSum += underflowProb * leftTailConditionalMean(tail, 1);
     massAccumulated += underflowProb;
   }
 
@@ -213,8 +264,11 @@ function reconcileHorizon(
   });
 
   // Compute exact discrete moments
-  const tailOffset = Math.max(expectedWidth * 0.85, 0.5);
-  const underflowMean = reconciledBins[0].min_pct - tailOffset;
+  const tailOffset = tailScaleFor(expectedWidth);
+  const underflowMean = leftTailConditionalMean(
+    leftTail(reconciledBins[0].min_pct, expectedWidth),
+    1
+  );
   const overflowMean = reconciledBins[reconciledBins.length - 1].max_pct + tailOffset;
 
   let mean = underflowProb * underflowMean + overflowProb * overflowMean;
@@ -373,7 +427,7 @@ export function auditAndReconcileForecast(
 
   const auditedPayload: ForecastPayload = {
     ...payload,
-    schema_version: '1.1.0',
+    schema_version: FORECAST_SCHEMA_VERSION,
     return_type: 'simple_pct',
     execution_signals: {
       ...payload.execution_signals,

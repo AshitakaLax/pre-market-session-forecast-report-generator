@@ -1,3 +1,7 @@
+import {
+  PREMARKET_WINDOW_END_ET,
+  PREMARKET_WINDOW_START_ET,
+} from '../src/constants/premarketWindow.ts';
 import crypto from 'crypto';
 import type {
   CalibrationMode,
@@ -7,16 +11,33 @@ import type {
   GroundingSource,
   HorizonForecast,
   HorizonKey,
+  InputObservation,
   MarketSnapshot,
   RealizedVerification,
   RunWindow,
 } from '../src/types/forecast.ts';
+import { FORECAST_SCHEMA_VERSION } from '../src/types/forecast.ts';
 import {
   auditAndReconcileForecast,
   buildExpectedBins,
   getBinWidthForSymbol,
   HORIZON_SPECS,
 } from './mathAudit.ts';
+import {
+  CBOE_INDEX_SOURCES,
+  chooseDailySeries,
+  computeOvernightFuturesChange,
+  dailyObservation,
+  fetchCboeDailyCloses,
+  fetchYahooMinuteBars,
+  intradayObservation,
+  ivRankPct,
+  latestOvernightVix,
+  overnightVixWindowOpen,
+  toEasternDateAndTime,
+  type DailyClose,
+  type DailySeriesCandidate,
+} from './marketInputs.ts';
 
 export const DEFAULT_PUBLIC_CHRONOS_URL = 'https://equinai-chronos-2-api.hf.space';
 
@@ -100,25 +121,6 @@ function getEasternNow(): {
     dateEt: `${get('year')}-${get('month')}-${get('day')}`,
     timeEt: `${hour}:${get('minute')}`,
     weekday,
-  };
-}
-
-function toEasternDateAndTime(unixSeconds: number): { dateEt: string; hhmmEt: string } {
-  const dt = new Date(unixSeconds * 1000);
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(dt);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '00';
-  const hour = get('hour') === '24' ? '00' : get('hour');
-  return {
-    dateEt: `${get('year')}-${get('month')}-${get('day')}`,
-    hhmmEt: `${hour}:${get('minute')}`,
   };
 }
 
@@ -229,23 +231,25 @@ async function fetchPremarketTape(
   prevClose: number
 ): Promise<{
   premarket_open_4am: number | null;
-  premarket_30m_high: number | null;
-  premarket_30m_low: number | null;
-  premarket_30m_change_pct: number | null;
-  premarket_30m_volume: number | null;
+  premarket_window_high: number | null;
+  premarket_window_low: number | null;
+  premarket_window_change_pct: number | null;
+  premarket_window_volume: number | null;
   pre_market_or_latest_price: number | null;
   pre_market_change_pct: number | null;
   missing: string[];
+  observations: InputObservation[];
 }> {
   const empty = {
     premarket_open_4am: null,
-    premarket_30m_high: null,
-    premarket_30m_low: null,
-    premarket_30m_change_pct: null,
-    premarket_30m_volume: null,
+    premarket_window_high: null,
+    premarket_window_low: null,
+    premarket_window_change_pct: null,
+    premarket_window_volume: null,
     pre_market_or_latest_price: null,
     pre_market_change_pct: null,
     missing: [] as string[],
+    observations: [] as InputObservation[],
   };
 
   if (et.weekday === 'Sat' || et.weekday === 'Sun' || et.timeEt < '04:00' || et.timeEt >= '09:30') {
@@ -309,31 +313,46 @@ async function fetchPremarketTape(
     }
 
     const pre = minuteBars.filter((b) => b.hhmmEt >= '04:00' && b.hhmmEt <= '09:29');
-    const opening = minuteBars.filter((b) => b.hhmmEt >= '04:00' && b.hhmmEt <= '04:29');
+    const windowElapsed = et.timeEt >= PREMARKET_WINDOW_END_ET;
+    const opening = windowElapsed
+      ? minuteBars.filter(
+          (b) => b.hhmmEt >= PREMARKET_WINDOW_START_ET && b.hhmmEt < PREMARKET_WINDOW_END_ET
+        )
+      : [];
 
     if (pre.length === 0) {
       empty.missing.push('Premarket minute tape is unavailable from Yahoo Finance.');
       return empty;
     }
 
-    const latest = pre[pre.length - 1].close;
+    const latestBar = pre[pre.length - 1];
+    const latest = latestBar.close;
     const changePct = prevClose > 0 ? ((latest / prevClose - 1) * 100) : null;
+    const latestObservations = [
+      intradayObservation('pre_market_or_latest_price', symbol, latestBar),
+      intradayObservation('pre_market_change_pct', symbol, latestBar),
+    ];
 
     if (opening.length > 0) {
       const open4am = opening[0].open;
-      const last30m = opening[opening.length - 1].close;
-      const high30m = Math.max(...opening.map((b) => b.high));
-      const low30m = Math.min(...opening.map((b) => b.low));
-      const vol30m = opening.reduce((acc, b) => acc + (b.volume || 0), 0);
+      const lastWindow = opening[opening.length - 1].close;
+      const highWindow = Math.max(...opening.map((b) => b.high));
+      const lowWindow = Math.min(...opening.map((b) => b.low));
+      const volWindow = opening.reduce((acc, b) => acc + (b.volume || 0), 0);
       return {
         premarket_open_4am: open4am,
-        premarket_30m_high: high30m,
-        premarket_30m_low: low30m,
-        premarket_30m_change_pct: open4am > 0 ? (last30m / open4am - 1) * 100 : null,
-        premarket_30m_volume: vol30m,
+        premarket_window_high: highWindow,
+        premarket_window_low: lowWindow,
+        premarket_window_change_pct: open4am > 0 ? (lastWindow / open4am - 1) * 100 : null,
+        premarket_window_volume: volWindow,
         pre_market_or_latest_price: latest,
         pre_market_change_pct: changePct,
         missing: [],
+        observations: [
+          ...latestObservations,
+          intradayObservation('premarket_open_4am', symbol, opening[0]),
+          intradayObservation('premarket_window_change_pct', symbol, opening[opening.length - 1], opening[0]),
+        ],
       };
     }
 
@@ -341,6 +360,12 @@ async function fetchPremarketTape(
       ...empty,
       pre_market_or_latest_price: latest,
       pre_market_change_pct: changePct,
+      observations: latestObservations,
+      missing: [
+        windowElapsed
+          ? `No minute bars in the ${PREMARKET_WINDOW_START_ET}-${PREMARKET_WINDOW_END_ET} ET opening window.`
+          : `Opening window ${PREMARKET_WINDOW_START_ET}-${PREMARKET_WINDOW_END_ET} ET has not completed yet.`,
+      ],
     };
   } catch {
     empty.missing.push('Premarket minute tape is unavailable from Yahoo Finance.');
@@ -353,6 +378,154 @@ function lastCompleteBars(bars: DailyBar[], et: { dateEt: string; timeEt: string
     return bars.filter((b) => b.date < et.dateEt);
   }
   return bars;
+}
+
+interface PremarketMarketInputs {
+  overnight_futures_change_pct: number | null;
+  vix_overnight_level: number | null;
+  vix9d_level: number | null;
+  vix3m_level: number | null;
+  rvx_level: number | null;
+  /** Close of the profile's volatility index (VIX, VXN or RVX) on or before the base session. */
+  primary_volatility_level: number | null;
+  iv_rank_pct: number | null;
+  observations: InputObservation[];
+  missing: string[];
+  notes: string[];
+}
+
+function settledMessage(result: PromiseSettledResult<unknown>): string {
+  return result.status === 'rejected'
+    ? result.reason instanceof Error
+      ? result.reason.message
+      : String(result.reason)
+    : '';
+}
+
+/**
+ * Inputs observable at ~4:20am ET that the daily bars cannot supply. Each fetch is
+ * best-effort: a failure leaves the field null and lists it in missing_inputs,
+ * but never fails the forecast. None of these feed the model.
+ */
+async function gatherPremarketMarketInputs(
+  profile: { volatility: string; futures: string },
+  et: { dateEt: string; timeEt: string; weekday: string },
+  baseSessionDate: string,
+  yahooDaily: Map<string, DailyBar[]>
+): Promise<PremarketMarketInputs> {
+  const out: PremarketMarketInputs = {
+    overnight_futures_change_pct: null,
+    vix_overnight_level: null,
+    vix9d_level: null,
+    vix3m_level: null,
+    rvx_level: null,
+    primary_volatility_level: null,
+    iv_rank_pct: null,
+    observations: [],
+    missing: [],
+    notes: [],
+  };
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const wantOvernightVix = overnightVixWindowOpen(et);
+
+  // 1. True overnight futures change and overnight VIX from Yahoo 1-minute bars.
+  const [futuresResult, vixResult] = await Promise.allSettled([
+    fetchYahooMinuteBars(profile.futures, false),
+    wantOvernightVix ? fetchYahooMinuteBars('^VIX', true) : Promise.resolve([]),
+  ]);
+
+  if (futuresResult.status === 'fulfilled') {
+    const change = computeOvernightFuturesChange(futuresResult.value, baseSessionDate, nowUnix);
+    if (change.change_pct !== null && change.latest && change.reference) {
+      out.overnight_futures_change_pct = change.change_pct;
+      out.observations.push(
+        intradayObservation('overnight_futures_change_pct', profile.futures, change.latest, change.reference)
+      );
+    } else {
+      out.notes.push(`Overnight ${profile.futures} change unavailable: ${change.reason}.`);
+    }
+  } else {
+    out.notes.push(`Overnight ${profile.futures} 1-minute bars unavailable: ${settledMessage(futuresResult)}.`);
+  }
+  if (out.overnight_futures_change_pct === null) out.missing.push('true_overnight_futures_change_pct');
+
+  if (wantOvernightVix) {
+    const bar = vixResult.status === 'fulfilled' ? latestOvernightVix(vixResult.value, et.dateEt, baseSessionDate) : null;
+    if (bar) {
+      out.vix_overnight_level = bar.close;
+      out.observations.push(intradayObservation('vix_overnight_level', '^VIX', bar));
+    } else {
+      out.missing.push('vix_overnight_level');
+      if (vixResult.status === 'rejected') {
+        out.notes.push(`Overnight ^VIX 1-minute bars unavailable: ${settledMessage(vixResult)}.`);
+      }
+    }
+  }
+
+  // 2. Cboe daily CSV closes, falling back to Yahoo daily history where it exists.
+  const indexKeys = Array.from(new Set(['^VIX9D', '^VIX3M', profile.volatility])).filter(
+    (key) => key in CBOE_INDEX_SOURCES
+  );
+  const cboeResults = await Promise.allSettled(
+    indexKeys.map((key) => fetchCboeDailyCloses(CBOE_INDEX_SOURCES[key].cboe))
+  );
+  const yahooAsCloses = async (ticker: string): Promise<DailyClose[] | null> => {
+    try {
+      const bars = yahooDaily.get(ticker) ?? (await fetchYahooDailyBars(ticker));
+      return bars.map((b) => ({ date: b.date, close: b.close }));
+    } catch {
+      return null;
+    }
+  };
+
+  const chosen = new Map<string, NonNullable<ReturnType<typeof chooseDailySeries>>>();
+  for (let i = 0; i < indexKeys.length; i++) {
+    const key = indexKeys[i];
+    const { cboe, yahooFallback } = CBOE_INDEX_SOURCES[key];
+    const cboeResult = cboeResults[i];
+    const candidates: DailySeriesCandidate[] = [
+      { source: 'cboe_daily_csv', ticker: cboe, series: cboeResult.status === 'fulfilled' ? cboeResult.value : null },
+    ];
+    const cboeChoice = chooseDailySeries(candidates, baseSessionDate);
+    // Only consult Yahoo when Cboe failed or has not posted the base session yet.
+    if (yahooFallback && (!cboeChoice || cboeChoice.latest.date < baseSessionDate)) {
+      candidates.push({ source: 'yahoo_chart_1d', ticker: yahooFallback, series: await yahooAsCloses(yahooFallback) });
+    }
+    if (cboeResult.status === 'rejected') {
+      out.notes.push(`Cboe ${cboe} CSV unavailable: ${settledMessage(cboeResult)}.`);
+    }
+    const pick = chooseDailySeries(candidates, baseSessionDate);
+    if (!pick) continue;
+    if (pick.latest.date < baseSessionDate) {
+      out.missing.push(`${cboe} close is from ${pick.latest.date}, older than base session ${baseSessionDate}`);
+    }
+    chosen.set(key, pick);
+  }
+
+  const assign = (key: string, field: 'vix9d_level' | 'vix3m_level' | 'rvx_level') => {
+    const pick = chosen.get(key);
+    if (pick) {
+      out[field] = pick.latest.close;
+      out.observations.push(dailyObservation(field, pick.source, pick.ticker, pick.latest.date));
+    } else {
+      out.missing.push(field);
+    }
+  };
+  assign('^VIX9D', 'vix9d_level');
+  assign('^VIX3M', 'vix3m_level');
+  if (profile.volatility === '^RVX') assign('^RVX', 'rvx_level');
+
+  const primary = chosen.get(profile.volatility);
+  if (primary) {
+    out.primary_volatility_level = primary.latest.close;
+    out.iv_rank_pct = ivRankPct(primary.series, baseSessionDate);
+    if (out.iv_rank_pct !== null) {
+      out.observations.push(dailyObservation('iv_rank_pct', primary.source, primary.ticker, primary.latest.date));
+    }
+  }
+  if (out.iv_rank_pct === null) out.missing.push('iv_rank_pct');
+
+  return out;
 }
 
 function logReturnsPct(bars: DailyBar[]): number[] {
@@ -768,7 +941,10 @@ export async function runPublicChronosPipeline(params: {
   }
 
   // Construct snapshot & execution signals
-  const premarket = await fetchPremarketTape(symbol, etNow, basePrice);
+  const [premarket, marketInputs] = await Promise.all([
+    fetchPremarketTape(symbol, etNow, basePrice),
+    gatherPremarketMarketInputs(profile, etNow, lastBar.date, histories),
+  ]);
   const completedAux = (ticker: string): DailyBar[] | null => {
     const b = histories.get(ticker);
     if (!b) return null;
@@ -778,7 +954,6 @@ export async function runPublicChronosPipeline(params: {
 
   const vixBars = completedAux('^VIX');
   const vxnBars = completedAux('^VXN');
-  const volBars = completedAux(profile.volatility);
   const futBars = completedAux(profile.futures);
   const tnxBars = completedAux('^TNX');
   const dxyBars = completedAux('DX-Y.NYB');
@@ -786,9 +961,11 @@ export async function runPublicChronosPipeline(params: {
 
   const vixLevel = vixBars ? vixBars[vixBars.length - 1].close : null;
   const vxnLevel = vxnBars ? vxnBars[vxnBars.length - 1].close : null;
+  // Underlying-index implied volatility scaled to an approximate symbol-level value
+  // for daily leveraged/inverse ETFs. Sourced from the Cboe CSV (Yahoo fallback).
   let impliedLevel =
-    volBars && ['^VIX', '^VXN', '^RVX'].includes(profile.volatility)
-      ? volBars[volBars.length - 1].close * profile.leverage
+    marketInputs.primary_volatility_level !== null && ['^VIX', '^VXN', '^RVX'].includes(profile.volatility)
+      ? marketInputs.primary_volatility_level * profile.leverage
       : null;
   if (impliedLevel !== null && !Number.isFinite(impliedLevel)) impliedLevel = null;
 
@@ -823,8 +1000,31 @@ export async function runPublicChronosPipeline(params: {
   const missingInputs: string[] = [...premarket.missing];
   if (vixLevel === null) missingInputs.push('vix_level');
   if (vxnLevel === null) missingInputs.push('vxn_level');
-  missingInputs.push('true_overnight_futures_change_pct');
+  missingInputs.push(...marketInputs.missing);
   if (us10y === null) missingInputs.push('us_10y_yield_pct');
+
+  const lastDate = (bars: DailyBar[] | null) => (bars ? bars[bars.length - 1].date : null);
+  const inputObservations: InputObservation[] = [
+    dailyObservation('prev_close', 'yahoo_chart_1d', symbol, lastBar.date),
+    ...premarket.observations,
+    ...marketInputs.observations,
+  ];
+  const yahooDailyInputs: Array<[string, string, DailyBar[] | null, unknown]> = [
+    ['vix_level', '^VIX', vixBars, vixLevel],
+    ['vxn_level', '^VXN', vxnBars, vxnLevel],
+    ['futures_daily_change_pct', profile.futures, futBars, futChange],
+    ['us_10y_yield_pct', '^TNX', tnxBars, us10y],
+    ['dxy_level', 'DX-Y.NYB', dxyBars, dxyLevel],
+    ['wti_crude_usd', 'CL=F', clBars, wtiUsd],
+  ];
+  for (const [field, ticker, bars, value] of yahooDailyInputs) {
+    const date = lastDate(bars);
+    if (date && value !== null) inputObservations.push(dailyObservation(field, 'yahoo_chart_1d', ticker, date));
+  }
+  const symbolIvSource = marketInputs.observations.find((o) => o.field === 'iv_rank_pct');
+  if (impliedLevel !== null && symbolIvSource) {
+    inputObservations.push({ ...symbolIvSource, field: 'symbol_iv_pct' });
+  }
   for (const [t, err] of fetchErrors.entries()) {
     if (t !== symbol) missingInputs.push(`${t}: ${err}`);
   }
@@ -842,11 +1042,13 @@ export async function runPublicChronosPipeline(params: {
     as_of_utc: nowUtc,
     market_session_phase: getSessionPhase(etNow),
     prev_close: basePrice,
+    premarket_window_start_et: PREMARKET_WINDOW_START_ET,
+    premarket_window_end_et: PREMARKET_WINDOW_END_ET,
     premarket_open_4am: premarket.premarket_open_4am,
-    premarket_30m_high: premarket.premarket_30m_high,
-    premarket_30m_low: premarket.premarket_30m_low,
-    premarket_30m_change_pct: premarket.premarket_30m_change_pct,
-    premarket_30m_volume: premarket.premarket_30m_volume,
+    premarket_window_high: premarket.premarket_window_high,
+    premarket_window_low: premarket.premarket_window_low,
+    premarket_window_change_pct: premarket.premarket_window_change_pct,
+    premarket_window_volume: premarket.premarket_window_volume,
     pre_market_or_latest_price: premarket.pre_market_or_latest_price,
     pre_market_change_pct: premarket.pre_market_change_pct,
     intraday_high: lastBar.high,
@@ -854,14 +1056,16 @@ export async function runPublicChronosPipeline(params: {
     five_day_return_pct: fiveDay,
     twenty_day_return_pct: twentyDay,
     overnight_futures_symbol: profile.futures,
-    overnight_futures_change_pct: null,
+    overnight_futures_change_pct: marketInputs.overnight_futures_change_pct,
     futures_daily_change_pct: futChange,
     vix_level: vixLevel,
+    vix_overnight_level: marketInputs.vix_overnight_level,
     vxn_level: vxnLevel,
-    vix9d_level: null,
-    vix3m_level: null,
+    rvx_level: marketInputs.rvx_level,
+    vix9d_level: marketInputs.vix9d_level,
+    vix3m_level: marketInputs.vix3m_level,
     symbol_iv_pct: impliedLevel,
-    iv_rank_pct: null,
+    iv_rank_pct: marketInputs.iv_rank_pct,
     put_call_ratio: null,
     realized_vol_20d_pct: rv20,
     us_2y_yield_pct: null,
@@ -874,7 +1078,8 @@ export async function runPublicChronosPipeline(params: {
     missing_inputs: uniqueMissing,
     confidence_score: confidenceScore,
     source_coverage: sourceCoverage,
-    raw_research_notes: `Connected automatically to public Amazon Chronos-2 service (${publicUrl}). Point forecasts at 1D–252D horizons combined with 10,000 five-session circular block-bootstrap scenarios from ${targetBars.length} completed daily sessions (anchored to ${lastBar.date} close $${basePrice.toFixed(2)}).`,
+    raw_research_notes: `Connected automatically to public Amazon Chronos-2 service (${publicUrl}). Point forecasts at 1D–252D horizons combined with 10,000 five-session circular block-bootstrap scenarios from ${targetBars.length} completed daily sessions (anchored to ${lastBar.date} close $${basePrice.toFixed(2)}). Overnight futures change, overnight VIX, VIX9D/VIX3M/RVX and IV rank are snapshot and display inputs only; they are not model covariates because no history exists at the same pre-market clock time.${marketInputs.notes.length ? ` ${marketInputs.notes.join(' ')}` : ''}`,
+    input_observations: inputObservations,
   };
 
   // Volatility state & regime classification
@@ -970,7 +1175,7 @@ export async function runPublicChronosPipeline(params: {
   ];
 
   const rawPayload: ForecastPayload = {
-    schema_version: '1.1.0',
+    schema_version: FORECAST_SCHEMA_VERSION,
     symbol,
     as_of: nowUtc,
     base_price: Number(basePrice.toFixed(2)),

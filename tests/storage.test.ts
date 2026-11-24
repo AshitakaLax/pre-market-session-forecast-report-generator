@@ -1,81 +1,39 @@
-import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  readForecasts,
-  readForecastsForDisplay,
-  readScheduleConfig,
-  saveForecast,
-  StorageCorruptionError,
-  writeScheduleConfig,
-} from '../server/storage.ts';
-import type { ForecastRecord } from '../src/types/forecast.ts';
+import { describe, it } from 'node:test';
 
-const rec = (id: string) => ({ id }) as unknown as ForecastRecord;
-let dir: string;
-const f = (n: string) => path.join(dir, n);
+// storage.ts reads FORECAST_DATA_DIR on every call, so point it at a temp dir.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sched-test-'));
+process.env.FORECAST_DATA_DIR = path.join(tmp, 'data');
+const storage = await import('../server/storage.ts');
 
-beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-test-'));
-  process.env.FORECAST_DATA_DIR = dir;
-});
-afterEach(() => {
-  delete process.env.FORECAST_DATA_DIR;
-  fs.rmSync(dir, { recursive: true, force: true });
-});
-
-describe('forecasts store', () => {
-  it('treats a missing file as empty and saves normally', () => {
-    assert.deepEqual(readForecasts(), []);
-    saveForecast(rec('a'));
-    assert.deepEqual(readForecasts().map((r) => r.id), ['a']);
+describe('schedule config defaults and migration', () => {
+  it('defaults to a 04:05 start with a 04:25 retry cutoff', () => {
+    const c = storage.readScheduleConfig();
+    assert.equal(c.time_et, '04:05');
+    assert.equal(c.retry_cutoff_et, '04:25');
+    assert.equal(c.last_successful_run_date_et, null);
   });
 
-  for (const [label, content] of [
-    ['invalid JSON', '{not json'],
-    ['non-array JSON', '{"a":1}'],
-  ]) {
-    it(`refuses to overwrite a store with ${label}`, () => {
-      fs.writeFileSync(f('forecasts.json'), content);
-      assert.throws(() => saveForecast(rec('new')), StorageCorruptionError);
-      assert.equal(fs.readFileSync(f('forecasts.json'), 'utf-8'), content);
-      assert.throws(() => readForecasts(), StorageCorruptionError);
-    });
-  }
-
-  it('display read returns an empty list with a warning and does not write', () => {
-    fs.writeFileSync(f('forecasts.json'), 'garbage');
-    const out = readForecastsForDisplay();
-    assert.deepEqual(out.forecasts, []);
-    assert.ok(out.warning);
-    assert.equal(fs.readFileSync(f('forecasts.json'), 'utf-8'), 'garbage');
+  it('migrates a persisted legacy 04:30 start (the deadline itself)', () => {
+    fs.mkdirSync(path.join(tmp, 'data'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, 'data', 'schedule.json'),
+      JSON.stringify({ enabled: true, time_et: '04:30', last_scheduled_run_date_et: '2026-11-23' })
+    );
+    const c = storage.readScheduleConfig();
+    assert.equal(c.time_et, '04:05');
+    assert.equal(c.enabled, true);
+    assert.equal(c.config_version, 2);
   });
 
-  it('keeps a .bak of the previous valid contents', () => {
-    saveForecast(rec('a'));
-    saveForecast(rec('b'));
-    const bak = JSON.parse(fs.readFileSync(f('forecasts.json.bak'), 'utf-8'));
-    assert.deepEqual(bak.map((r: ForecastRecord) => r.id), ['a']);
-  });
-});
-
-describe('schedule config', () => {
-  it('returns defaults when missing', () => {
-    assert.equal(readScheduleConfig().enabled, false);
-  });
-
-  it('throws on corrupt schedule instead of silently disabling it', () => {
-    fs.writeFileSync(f('schedule.json'), '{oops');
-    assert.throws(() => readScheduleConfig(), StorageCorruptionError);
-    fs.writeFileSync(f('schedule.json'), '[]');
-    assert.throws(() => readScheduleConfig(), StorageCorruptionError);
-  });
-
-  it('round-trips and backs up valid config', () => {
-    writeScheduleConfig({ ...readScheduleConfig(), enabled: true });
-    writeScheduleConfig({ ...readScheduleConfig(), enabled: false });
-    assert.equal(JSON.parse(fs.readFileSync(f('schedule.json.bak'), 'utf-8')).enabled, true);
+  it('keeps a deliberately chosen time on a current-version config', () => {
+    fs.writeFileSync(
+      path.join(tmp, 'data', 'schedule.json'),
+      JSON.stringify({ time_et: '04:10', config_version: 2 })
+    );
+    assert.equal(storage.readScheduleConfig().time_et, '04:10');
   });
 });

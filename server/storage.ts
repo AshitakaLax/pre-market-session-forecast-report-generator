@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { ForecastRecord, ScheduleConfig } from '../src/types/forecast.ts';
+import { assertValidForecastRecord } from './forecastValidation.ts';
 
 /** Data directory; override with FORECAST_DATA_DIR (evaluated on every call so tests can swap it). */
 function dataDir(): string {
@@ -25,15 +26,25 @@ export class StorageCorruptionError extends Error {
   }
 }
 
+/** v2: start moved from 04:30 (the deadline) to 04:05 with retries until the cutoff. */
+const CONFIG_VERSION = 2;
+
 const DEFAULT_SCHEDULE: ScheduleConfig = {
   enabled: false,
-  time_et: '04:30',
+  time_et: '04:05',
   trading_days_only: true,
   symbols: ['TQQQ'],
   calibration_mode: 'leveraged_scaled',
   run_window: 'pre_market',
   last_scheduled_run_date_et: null,
   last_run_status: null,
+  retry_cutoff_et: '04:25',
+  last_successful_run_date_et: null,
+  attempts_date_et: null,
+  attempts_today: 0,
+  last_attempt_at: null,
+  missed_alert_date_et: null,
+  config_version: CONFIG_VERSION,
 };
 
 function ensureDataDir(): void {
@@ -109,7 +120,13 @@ export function writeForecasts(records: ForecastRecord[]): void {
   atomicWrite(file, records);
 }
 
+/**
+ * Persist a forecast record. The record must satisfy
+ * schemas/forecast-record.schema.json and the semantic probability rules;
+ * otherwise a ForecastValidationError is thrown and nothing is written.
+ */
 export function saveForecast(record: ForecastRecord): void {
+  assertValidForecastRecord(record);
   const existing = readForecasts(); // throws on a corrupt store, so we never overwrite it
   const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 120);
   writeForecasts(updated);
@@ -128,10 +145,20 @@ export function deleteForecastById(id: string): boolean {
 }
 
 /** Strict read: defaults only when the file does not exist. Throws StorageCorruptionError otherwise. */
+/** Strict read: defaults only when the file does not exist. Throws StorageCorruptionError otherwise. */
 export function readScheduleConfig(): ScheduleConfig {
   ensureDataDir();
-  const parsed = readJsonFile(scheduleFile(), validateScheduleObject);
-  return { ...DEFAULT_SCHEDULE, ...((parsed as Partial<ScheduleConfig> | undefined) ?? {}) };
+  const parsed = readJsonFile(scheduleFile(), validateScheduleObject) as
+    | (Partial<ScheduleConfig> & { config_version?: number })
+    | undefined;
+  if (!parsed) return { ...DEFAULT_SCHEDULE };
+  const merged: ScheduleConfig = { ...DEFAULT_SCHEDULE, ...parsed };
+  // Migrate the old default (04:30 = the deadline itself) so existing installs get the fix.
+  if ((parsed.config_version ?? 1) < CONFIG_VERSION && parsed.time_et === '04:30') {
+    merged.time_et = DEFAULT_SCHEDULE.time_et;
+  }
+  merged.config_version = CONFIG_VERSION;
+  return merged;
 }
 
 export function writeScheduleConfig(config: ScheduleConfig): ScheduleConfig {

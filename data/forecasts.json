@@ -107,12 +107,12 @@
           "summary": {
             "mean_pct": -0.76,
             "median_pct": -1.16,
-            "std_pct": 6.22,
+            "std_pct": 6.21,
             "prob_positive": 0.4395,
-            "expected_shortfall_5pct": -10.65,
+            "expected_shortfall_5pct": -10.59,
             "quantiles_pct": {
-              "p01": -11.43,
-              "p05": -9.38,
+              "p01": -11.34,
+              "p05": -9.36,
               "p25": -6.66,
               "p75": 4.47,
               "p95": 8.96,
@@ -189,14 +189,14 @@
             }
           ],
           "summary": {
-            "mean_pct": -1.46,
+            "mean_pct": -1.44,
             "median_pct": -3.19,
-            "std_pct": 13.09,
+            "std_pct": 13.07,
             "prob_positive": 0.4432,
-            "expected_shortfall_5pct": -21.57,
+            "expected_shortfall_5pct": -21.29,
             "quantiles_pct": {
-              "p01": -23.13,
-              "p05": -19.02,
+              "p01": -22.75,
+              "p05": -18.93,
               "p25": -14.6,
               "p75": 11.03,
               "p95": 18.42,
@@ -273,14 +273,14 @@
             }
           ],
           "summary": {
-            "mean_pct": -3.58,
+            "mean_pct": -3.5,
             "median_pct": -6.77,
-            "std_pct": 25.84,
+            "std_pct": 25.75,
             "prob_positive": 0.4254,
-            "expected_shortfall_5pct": -42.91,
+            "expected_shortfall_5pct": -41.64,
             "quantiles_pct": {
-              "p01": -46.02,
-              "p05": -37.81,
+              "p01": -44.32,
+              "p05": -37.39,
               "p25": -28.39,
               "p75": 20.25,
               "p95": 36.67,
@@ -357,14 +357,14 @@
             }
           ],
           "summary": {
-            "mean_pct": -6.75,
+            "mean_pct": -6.52,
             "median_pct": -14.81,
-            "std_pct": 39.86,
+            "std_pct": 39.59,
             "prob_positive": 0.4037,
-            "expected_shortfall_5pct": -65.03,
+            "expected_shortfall_5pct": -61.45,
             "quantiles_pct": {
-              "p01": -69.69,
-              "p05": -57.38,
+              "p01": -64.9,
+              "p05": -56.09,
               "p25": -45.07,
               "p75": 32.1,
               "p95": 55.76,
@@ -441,14 +441,14 @@
             }
           ],
           "summary": {
-            "mean_pct": -16.91,
+            "mean_pct": -15.86,
             "median_pct": -39.46,
-            "std_pct": 66.55,
+            "std_pct": 65.45,
             "prob_positive": 0.3519,
-            "expected_shortfall_5pct": -107.98,
+            "expected_shortfall_5pct": -92.63,
             "quantiles_pct": {
-              "p01": -115.75,
-              "p05": -95.23,
+              "p01": -95.1,
+              "p05": -88.87,
               "p25": -74.35,
               "p75": 46.07,
               "p95": 93.25,
@@ -555,7 +555,7 @@
       }
     ],
     "audit": {
-      "audited_at": "2026-11-24T02:50:10.898Z",
+      "audited_at": "2026-11-24T15:11:32.966Z",
       "all_passed": true,
       "strategy_weight_raw_sum": 1,
       "strategy_weight_reconciled_sum": 1,
