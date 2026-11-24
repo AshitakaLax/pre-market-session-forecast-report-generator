@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { describe, it } from 'node:test';
 import {
+  FORECAST_RECORD_SCHEMA_VERSION,
   ForecastValidationError,
+  SUPPORTED_FORECAST_SCHEMA_VERSIONS,
   assertValidForecastRecord,
   validateForecastPayload,
   validateForecastRecord,
 } from '../server/forecastValidation.ts';
-import type { ForecastRecord } from '../src/types/forecast.ts';
+import { FORECAST_SCHEMA_VERSION, type ForecastRecord } from '../src/types/forecast.ts';
 import { buildSampleForecastRecord } from './fixtures/sampleForecastRecord.ts';
 
 const EXAMPLE_URL = new URL('../schemas/examples/forecast-record.example.json', import.meta.url);
@@ -148,10 +150,72 @@ describe('forecast record JSON Schema', () => {
     assert.deepEqual(issuePaths(record), ['schema:/created_at']);
   });
 
-  it('rejects a schema_version other than the one this schema describes', () => {
+  it('rejects a schema_version that no schema describes', () => {
     const record = sample();
-    record.payload.schema_version = '1.2.0';
+    record.payload.schema_version = '9.9.9';
     assert.deepEqual(issuePaths(record), ['schema:/payload/schema_version']);
+  });
+
+  it('keeps the TypeScript version constant in step with the schema', () => {
+    assert.equal(FORECAST_SCHEMA_VERSION, FORECAST_RECORD_SCHEMA_VERSION);
+    assert.equal(validateForecastRecord(sample()).schema_id.includes(`/${FORECAST_SCHEMA_VERSION}/`), true);
+  });
+});
+
+describe('schema versions', () => {
+  function asV110(): Record<string, unknown> {
+    const record = sample() as unknown as {
+      payload: { schema_version: string };
+      snapshot: Record<string, unknown>;
+    };
+    record.payload.schema_version = '1.1.0';
+    delete record.snapshot.vix_overnight_level;
+    delete record.snapshot.rvx_level;
+    delete record.snapshot.input_observations;
+    return record as unknown as Record<string, unknown>;
+  }
+
+  it('still supports the frozen 1.1.0 contract', () => {
+    assert.ok(SUPPORTED_FORECAST_SCHEMA_VERSIONS.includes('1.1.0'));
+  });
+
+  it('validates a stored 1.1.0 record against the 1.1.0 schema', () => {
+    const outcome = validateForecastRecord(asV110());
+    assert.deepEqual(outcome.issues, []);
+    assert.match(outcome.schema_id, /\/1\.1\.0\//);
+  });
+
+  it('rejects 1.2.0 fields on a record that declares 1.1.0', () => {
+    const record = asV110() as { snapshot: Record<string, unknown> };
+    record.snapshot.rvx_level = 27.69;
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot']);
+  });
+
+  it('requires the 1.2.0 snapshot fields on a 1.2.0 record', () => {
+    const record = sample() as unknown as { snapshot: Record<string, unknown> };
+    delete record.snapshot.input_observations;
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot']);
+  });
+});
+
+describe('input observations', () => {
+  it('requires a timestamp on intraday observations', () => {
+    const record = sample();
+    record.snapshot.input_observations[0].observed_at = null;
+    assert.ok(issuePaths(record).includes('schema:/snapshot/input_observations/0/observed_at'));
+  });
+
+  it('rejects a timestamp on daily-close observations', () => {
+    const record = sample();
+    const daily = record.snapshot.input_observations.findIndex((o) => o.kind === 'daily_close');
+    record.snapshot.input_observations[daily].observed_at = '2026-11-23T21:15:00.000Z';
+    assert.ok(issuePaths(record).includes(`schema:/snapshot/input_observations/${daily}/observed_at`));
+  });
+
+  it('rejects an unknown source', () => {
+    const record = sample() as unknown as { snapshot: { input_observations: Array<Record<string, unknown>> } };
+    record.snapshot.input_observations[0].source = 'bloomberg';
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot/input_observations/0/source']);
   });
 });
 

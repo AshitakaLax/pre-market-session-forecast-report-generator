@@ -21,6 +21,19 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from market_inputs import (
+    CBOE_INDEX_SOURCES,
+    choose_daily_series,
+    cboe_csv_url,
+    daily_observation,
+    fetch_cboe_daily_closes,
+    intraday_observation,
+    iv_rank_pct,
+    latest_overnight_vix,
+    minute_closes,
+    overnight_futures_change,
+    overnight_vix_window_open,
+)
 from scenarios import (
     QUANTILE_LEVELS,
     build_horizon_distributions,
@@ -44,6 +57,8 @@ API_TOKEN = os.getenv("CHRONOS_API_TOKEN", "")
 PREMARKET_WINDOW_START = clock_time(4, 0)
 PREMARKET_WINDOW_END = clock_time(4, 5)
 NY = ZoneInfo("America/New_York")
+# Must match payload.schema_version's const in schemas/forecast-record.schema.json.
+SCHEMA_VERSION = "1.2.0"
 
 MODEL: Chronos2Pipeline | None = None
 MODEL_LOCK = threading.Lock()
@@ -191,6 +206,9 @@ def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
         "change_window_pct": None,
         "volume_window": None,
         "latest_price": None,
+        "latest_ts": None,
+        "open_ts": None,
+        "last_window_ts": None,
     }
     if now_et.weekday() >= 5 or now_et.time() >= clock_time(9, 30) or now_et.time() < clock_time(4, 0):
         return result
@@ -223,6 +241,7 @@ def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
             opening = today.iloc[0:0]
         if not pre.empty:
             result["latest_price"] = float(pre["Close"].iloc[-1])
+            result["latest_ts"] = pre.index[-1]
         if not opening.empty:
             first = opening.iloc[0]
             last = opening.iloc[-1]
@@ -233,6 +252,8 @@ def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
                     "low_window": float(opening["Low"].min()),
                     "change_window_pct": float((last["Close"] / first["Open"] - 1) * 100),
                     "volume_window": float(opening["Volume"].fillna(0).sum()),
+                    "open_ts": opening.index[0],
+                    "last_window_ts": opening.index[-1],
                 }
             )
     except Exception as exc:
@@ -333,6 +354,9 @@ def _build_training_frame(
             missing[feature] = f"Historical volatility series {ticker} unavailable."
 
     # Market-derived features use only information available at each daily close.
+    # The pre-market inputs (overnight futures change, overnight VIX, Cboe CSV levels
+    # gathered at ~4:20am ET) are deliberately NOT covariates: no history exists at the
+    # same clock time, so training on them would be look-ahead. See market_inputs.py.
     calendar_features = _calendar_covariates(pd.DatetimeIndex(frame.index))
     for name in calendar_features.columns:
         candidate_features[name] = calendar_features[name]
@@ -391,13 +415,22 @@ def _premarket_snapshot(
     symbol: str,
     now_et: datetime,
     previous_close: float,
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     minute = _intraday_premarket(symbol, now_et)
     latest = minute["latest_price"]
     missing: list[str] = []
     if latest is None and now_et.time() < clock_time(9, 30) and now_et.time() >= clock_time(4, 0):
         missing.append("Premarket minute tape is unavailable from the selected free data adapter.")
     change = (float(latest) / previous_close - 1.0) * 100.0 if latest is not None and previous_close > 0 else None
+    observations: list[dict[str, Any]] = []
+    if minute["latest_ts"] is not None:
+        observations.append(intraday_observation("pre_market_or_latest_price", symbol, minute["latest_ts"]))
+        observations.append(intraday_observation("pre_market_change_pct", symbol, minute["latest_ts"]))
+    if minute["open_ts"] is not None:
+        observations.append(intraday_observation("premarket_open_4am", symbol, minute["open_ts"]))
+        observations.append(
+            intraday_observation("premarket_window_change_pct", symbol, minute["last_window_ts"], minute["open_ts"])
+        )
     return {
         "pre_market_or_latest_price": float(latest) if latest is not None else None,
         "pre_market_change_pct": float(change) if change is not None else None,
@@ -408,7 +441,154 @@ def _premarket_snapshot(
         "premarket_window_low": minute["low_window"],
         "premarket_window_change_pct": minute["change_window_pct"],
         "premarket_window_volume": minute["volume_window"],
-    }, missing
+    }, missing, observations
+
+
+def _fetch_minute_closes(ticker: str, prepost: bool) -> pd.Series:
+    frame = yf.Ticker(ticker).history(
+        period="5d",
+        interval="1m",
+        prepost=prepost,
+        auto_adjust=False,
+        actions=False,
+        timeout=15,
+    )
+    return minute_closes(frame)
+
+
+def _session_close_time(session: date) -> clock_time:
+    """Cash close for ``session`` (1:00pm ET on early-close days), defaulting to 4:00pm ET."""
+    try:
+        schedule = mcal.get_calendar("NASDAQ").schedule(start_date=session, end_date=session)
+        if not schedule.empty:
+            return schedule.iloc[0]["market_close"].tz_convert(NY).time()
+    except Exception:
+        pass
+    return clock_time(16, 0)
+
+
+def _gather_premarket_market_inputs(
+    profile: dict[str, Any],
+    now_et: datetime,
+    base_session: date,
+    histories: dict[str, pd.DataFrame],
+) -> dict[str, Any]:
+    """Inputs observable at ~4:20am ET that daily bars cannot supply.
+
+    Every fetch is best-effort: a failure leaves the field null and lists it in
+    missing_inputs but never fails the forecast. None of these values are model
+    covariates (no history at the same pre-market clock time; see market_inputs.py).
+    """
+    out: dict[str, Any] = {
+        "overnight_futures_change_pct": None,
+        "vix_overnight_level": None,
+        "vix9d_level": None,
+        "vix3m_level": None,
+        "rvx_level": None,
+        "primary_volatility_level": None,
+        "iv_rank_pct": None,
+        "observations": [],
+        "missing": [],
+        "notes": [],
+        "cboe_symbols": [],
+    }
+    futures = str(profile["futures"])
+    volatility = str(profile["volatility"])
+    want_overnight_vix = overnight_vix_window_open(now_et)
+    index_keys = [key for key in dict.fromkeys(["^VIX9D", "^VIX3M", volatility]) if key in CBOE_INDEX_SOURCES]
+
+    with ThreadPoolExecutor(max_workers=2 + len(index_keys)) as pool:
+        futures_job = pool.submit(_fetch_minute_closes, futures, False)
+        vix_job = pool.submit(_fetch_minute_closes, "^VIX", True) if want_overnight_vix else None
+        cboe_jobs = {key: pool.submit(fetch_cboe_daily_closes, str(CBOE_INDEX_SOURCES[key]["cboe"])) for key in index_keys}
+
+    # 1. True overnight futures change.
+    try:
+        change = overnight_futures_change(
+            futures_job.result(), base_session, now_et, close_time=_session_close_time(base_session)
+        )
+        if change["change_pct"] is not None:
+            out["overnight_futures_change_pct"] = float(change["change_pct"])
+            out["observations"].append(
+                intraday_observation(
+                    "overnight_futures_change_pct", futures, change["latest"][0], change["reference"][0]
+                )
+            )
+        else:
+            out["notes"].append(f"Overnight {futures} change unavailable: {change['reason']}.")
+    except Exception as exc:
+        out["notes"].append(f"Overnight {futures} 1-minute bars unavailable: {str(exc)[:160]}.")
+    if out["overnight_futures_change_pct"] is None:
+        out["missing"].append("true_overnight_futures_change_pct")
+
+    # 2. Overnight VIX (only expected between 03:30 and 09:30 ET on weekdays).
+    if vix_job is not None:
+        try:
+            bar = latest_overnight_vix(vix_job.result(), now_et.date(), base_session, now_et)
+        except Exception as exc:
+            bar = None
+            out["notes"].append(f"Overnight ^VIX 1-minute bars unavailable: {str(exc)[:160]}.")
+        if bar is not None:
+            out["vix_overnight_level"] = bar[1]
+            out["observations"].append(intraday_observation("vix_overnight_level", "^VIX", bar[0]))
+        else:
+            out["missing"].append("vix_overnight_level")
+
+    # 3. Cboe daily CSV closes, falling back to Yahoo daily history where it exists.
+    chosen: dict[str, dict[str, Any]] = {}
+    for key in index_keys:
+        cboe = str(CBOE_INDEX_SOURCES[key]["cboe"])
+        fallback = CBOE_INDEX_SOURCES[key]["yahoo_fallback"]
+        try:
+            cboe_series = cboe_jobs[key].result()
+        except Exception as exc:
+            cboe_series = None
+            out["notes"].append(f"Cboe {cboe} CSV unavailable: {str(exc)[:160]}.")
+        candidates: list[dict[str, Any]] = [{"source": "cboe_daily_csv", "ticker": cboe, "series": cboe_series}]
+        cboe_choice = choose_daily_series(candidates, base_session)
+        # Only consult Yahoo when Cboe failed or has not posted the base session yet.
+        if fallback and (cboe_choice is None or cboe_choice["latest_date"] < base_session):
+            try:
+                frame = histories.get(fallback)
+                if frame is None:
+                    frame = _fetch_daily_history(fallback)
+                yahoo = frame["Close"].replace([np.inf, -np.inf], np.nan).dropna()
+                yahoo.index = [stamp.date() for stamp in yahoo.index]
+                candidates.append({"source": "yahoo_chart_1d", "ticker": fallback, "series": yahoo})
+            except Exception as exc:
+                logger.info("Yahoo fallback %s unavailable: %s", fallback, exc)
+        pick = choose_daily_series(candidates, base_session)
+        if pick is None:
+            continue
+        if pick["source"] == "cboe_daily_csv":
+            out["cboe_symbols"].append(cboe)
+        if pick["latest_date"] < base_session:
+            out["missing"].append(
+                f"{cboe} close is from {pick['latest_date'].isoformat()}, older than base session {base_session.isoformat()}"
+            )
+        chosen[key] = pick
+
+    for key, field in (("^VIX9D", "vix9d_level"), ("^VIX3M", "vix3m_level"), ("^RVX", "rvx_level")):
+        if key == "^RVX" and volatility != "^RVX":
+            continue
+        pick = chosen.get(key)
+        if pick is not None:
+            out[field] = pick["latest"]
+            out["observations"].append(daily_observation(field, pick["source"], pick["ticker"], pick["latest_date"]))
+        else:
+            out["missing"].append(field)
+
+    primary = chosen.get(volatility)
+    if primary is not None:
+        out["primary_volatility_level"] = primary["latest"]
+        out["iv_rank_pct"] = iv_rank_pct(primary["series"], base_session)
+        if out["iv_rank_pct"] is not None:
+            out["observations"].append(
+                daily_observation("iv_rank_pct", primary["source"], primary["ticker"], primary["latest_date"])
+            )
+    if out["iv_rank_pct"] is None:
+        out["missing"].append("iv_rank_pct")
+    return out
 
 
 def _safe_last(series: pd.Series | None) -> float | None:
@@ -427,11 +607,13 @@ def _make_market_snapshot(
     covariates: list[str],
     missing_inputs: list[str],
     now_et: datetime,
-) -> tuple[dict[str, Any], float]:
+) -> tuple[dict[str, Any], float, list[str]]:
     close = target_history["Close"].astype(float)
     base_price = float(close.iloc[-1])
-    premarket, premarket_missing = _premarket_snapshot(symbol, now_et, base_price)
+    base_session = target_history.index[-1].date()
+    premarket, premarket_missing, premarket_observations = _premarket_snapshot(symbol, now_et, base_price)
     missing_inputs.extend(premarket_missing)
+    market_inputs = _gather_premarket_market_inputs(profile, now_et, base_session, histories)
 
     def latest_close(ticker: str) -> pd.Series | None:
         frame = histories.get(ticker)
@@ -442,7 +624,6 @@ def _make_market_snapshot(
             return None
         return completed["Close"].replace([np.inf, -np.inf], np.nan).dropna()
 
-    vol_series = latest_close(str(profile["volatility"]))
     vix_series = latest_close("^VIX")
     vxn_series = latest_close("^VXN")
     futures_series = latest_close(str(profile["futures"]))
@@ -458,7 +639,8 @@ def _make_market_snapshot(
 
     vix_level = _safe_last(vix_series)
     vxn_level = _safe_last(vxn_series)
-    implied_level = _safe_last(vol_series)
+    # Profile volatility index close from the Cboe CSV (Yahoo daily fallback).
+    implied_level = market_inputs["primary_volatility_level"]
     if implied_level is not None and str(profile["volatility"]) not in ("^VIX", "^VXN", "^RVX"):
         implied_level = None
     if implied_level is not None:
@@ -476,12 +658,31 @@ def _make_market_snapshot(
             for name, value in (
                 ("vix_level", vix_level),
                 ("vxn_level", vxn_level),
-                ("true_overnight_futures_change_pct", None),
                 ("us_10y_yield_pct", _safe_last(treasury_series)),
             )
             if value is None
         ]
     )
+    missing_inputs.extend(market_inputs["missing"])
+
+    observations: list[dict[str, Any]] = [
+        daily_observation("prev_close", "yahoo_chart_1d", symbol, base_session),
+        *premarket_observations,
+        *market_inputs["observations"],
+    ]
+    for field, ticker, series, value in (
+        ("vix_level", "^VIX", vix_series, vix_level),
+        ("vxn_level", "^VXN", vxn_series, vxn_level),
+        ("futures_daily_change_pct", str(profile["futures"]), futures_series, futures_change),
+        ("us_10y_yield_pct", "^TNX", treasury_series, _safe_last(treasury_series)),
+        ("dxy_level", "DX-Y.NYB", dxy_series, _safe_last(dxy_series)),
+        ("wti_crude_usd", "CL=F", crude_series, _safe_last(crude_series)),
+    ):
+        if value is not None and series is not None and len(series):
+            observations.append(daily_observation(field, "yahoo_chart_1d", ticker, series.index[-1].date()))
+    iv_source = next((o for o in market_inputs["observations"] if o["field"] == "iv_rank_pct"), None)
+    if implied_level is not None and iv_source is not None:
+        observations.append({**iv_source, "field": "symbol_iv_pct"})
     coverage_score = min(1.0, len(covariates) / 22.0)
     source_coverage = "mixed" if len(training) >= 500 and len(covariates) >= 3 else "degraded"
 
@@ -499,14 +700,16 @@ def _make_market_snapshot(
         "five_day_return_pct": float(five_day) if five_day is not None else None,
         "twenty_day_return_pct": float(twenty_day) if twenty_day is not None else None,
         "overnight_futures_symbol": profile["futures"],
-        "overnight_futures_change_pct": None,
+        "overnight_futures_change_pct": market_inputs["overnight_futures_change_pct"],
         "futures_daily_change_pct": float(futures_change) if futures_change is not None else None,
         "vix_level": float(vix_level) if vix_level is not None else None,
+        "vix_overnight_level": market_inputs["vix_overnight_level"],
         "vxn_level": float(vxn_level) if vxn_level is not None else None,
-        "vix9d_level": None,
-        "vix3m_level": None,
+        "rvx_level": market_inputs["rvx_level"],
+        "vix9d_level": market_inputs["vix9d_level"],
+        "vix3m_level": market_inputs["vix3m_level"],
         "symbol_iv_pct": float(implied_level) if implied_level is not None else None,
-        "iv_rank_pct": None,
+        "iv_rank_pct": market_inputs["iv_rank_pct"],
         "put_call_ratio": None,
         "realized_vol_20d_pct": float(rv20) if rv20 is not None else None,
         "us_2y_yield_pct": None,
@@ -527,12 +730,19 @@ def _make_market_snapshot(
             "Daily marginal quantiles are transformed into cumulative multi-horizon scenarios "
             "using five-session circular block-bootstrap innovations from historical standardized returns. "
             "Forecasts are anchored to the last completed regular-session close. "
-            "The free Yahoo Finance adapter does not provide a true overnight-only futures change, verified options positioning, "
-            "a complete economic calendar, or institutional-grade real-time market data. Futures daily change is shown separately. "
+            "The overnight futures change is measured from 1-minute futures bars (about 10 minutes delayed) against the "
+            "price at the last completed session's cash close; futures daily change is shown separately. "
+            "Overnight VIX, VIX9D, VIX3M, RVX and IV rank come from Yahoo 1-minute bars and Cboe daily CSV closes. "
+            "These pre-market inputs are snapshot and display values only, not model covariates, because no history "
+            "exists at the same pre-market clock time. "
+            "The free adapters do not provide verified options positioning, a complete economic calendar, or "
+            "institutional-grade real-time market data. "
             "This model has not yet been walk-forward calibrated."
+            + (" " + " ".join(market_inputs["notes"]) if market_inputs["notes"] else "")
         ),
+        "input_observations": observations,
     }
-    return snapshot, base_price
+    return snapshot, base_price, market_inputs["cboe_symbols"]
 
 
 def _execution_signals(
@@ -618,8 +828,8 @@ def _execution_signals(
     }
 
 
-def _build_sources(histories: dict[str, pd.DataFrame]) -> list[dict[str, str]]:
-    return [
+def _build_sources(histories: dict[str, pd.DataFrame], cboe_symbols: list[str]) -> list[dict[str, str]]:
+    sources = [
         {
             "title": f"Yahoo Finance daily history: {ticker}",
             "uri": f"https://finance.yahoo.com/quote/{quote(ticker, safe='')}/",
@@ -627,6 +837,15 @@ def _build_sources(histories: dict[str, pd.DataFrame]) -> list[dict[str, str]]:
         }
         for ticker in sorted(histories)
     ]
+    sources.extend(
+        {
+            "title": f"Cboe daily index history: {symbol}",
+            "uri": cboe_csv_url(symbol),
+            "domain": "cdn-api.cboe.com",
+        }
+        for symbol in sorted(set(cboe_symbols))
+    )
+    return sources
 
 
 def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> dict[str, Any]:
@@ -737,7 +956,7 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
     horizon_specs = [spec.model_dump() for spec in request.horizon_specs]
     distributions = build_horizon_distributions(paths, horizon_specs)
 
-    snapshot, base_price = _make_market_snapshot(
+    snapshot, base_price, cboe_symbols = _make_market_snapshot(
         symbol,
         profile,
         histories,
@@ -749,7 +968,7 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
     )
     signals = _execution_signals(training, snapshot, distributions)
     raw_payload = {
-        "schema_version": "1.1.0",
+        "schema_version": SCHEMA_VERSION,
         "symbol": symbol,
         "as_of": datetime.now().astimezone().isoformat(),
         "base_price": base_price,
@@ -764,7 +983,7 @@ def _generate_forecast(request: ForecastRequest, pipeline: Chronos2Pipeline) -> 
     }
     return {
         "snapshot": snapshot,
-        "sources": _build_sources(histories),
+        "sources": _build_sources(histories, cboe_symbols),
         "raw_payload": raw_payload,
         "diagnostics": {
             "model_id": MODEL_ID,

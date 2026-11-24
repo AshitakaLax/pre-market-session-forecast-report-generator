@@ -18,6 +18,9 @@ export type HorizonKey = 'tomorrow' | 'next_week' | 'next_month' | 'next_quarter
 export type CalibrationMode = 'leveraged_scaled' | 'original_1x';
 export type RunWindow = 'pre_market' | 'pre_bell' | 'eod';
 
+/** Payload contract version; must match the `const` in schemas/forecast-record.schema.json. */
+export const FORECAST_SCHEMA_VERSION = '1.2.0';
+
 export interface CatalystItem {
   time_utc: string;
   event: string;
@@ -98,6 +101,29 @@ export interface GroundingSource {
   domain: string;
 }
 
+export type InputObservationSource = 'yahoo_chart_1m' | 'yahoo_chart_1d' | 'cboe_daily_csv';
+export type InputObservationKind = 'intraday_bar' | 'daily_close';
+
+/**
+ * Provenance for one snapshot input: where it came from and when it was observed.
+ * The snapshot's as_of_utc is when the snapshot was assembled; these say how old
+ * each input was at that moment.
+ */
+export interface InputObservation {
+  /** MarketSnapshot field this observation populates. */
+  field: string;
+  source: InputObservationSource;
+  /** Ticker at the source (Yahoo symbol such as NQ=F, or Cboe symbol such as VIX9D). */
+  ticker: string;
+  kind: InputObservationKind;
+  /** intraday_bar: Yahoo 1-minute bar timestamp (bar start) whose close is used. null for daily_close. */
+  observed_at: string | null;
+  /** daily_close: session whose close is used. intraday_bar: America/New_York date of the bar. */
+  session_date: string;
+  /** For change fields: timestamp of the reference bar (e.g. the 15:59 ET futures bar). */
+  reference_observed_at: string | null;
+}
+
 export interface MarketSnapshot {
   symbol: string;
   underlying_symbol: string;
@@ -130,8 +156,13 @@ export interface MarketSnapshot {
   overnight_futures_change_pct: number | null;
   /** Daily close-to-close futures return; not an overnight-only measurement. */
   futures_daily_change_pct?: number | null;
+  /** Prior-session VIX close. */
   vix_level: number | null;
+  /** Latest overnight VIX print (Cboe disseminates from 3:15am ET); null outside 03:15–09:30 ET. */
+  vix_overnight_level: number | null;
   vxn_level: number | null;
+  /** Cboe Russell 2000 volatility index close; populated for Russell 2000 profiles (TNA). */
+  rvx_level: number | null;
   vix9d_level: number | null;
   vix3m_level: number | null;
   symbol_iv_pct: number | null;
@@ -149,6 +180,8 @@ export interface MarketSnapshot {
   confidence_score: number;
   source_coverage: SourceCoverage;
   raw_research_notes: string;
+  /** Per-input source and observation time. */
+  input_observations: InputObservation[];
 }
 
 export interface HorizonAuditEntry {

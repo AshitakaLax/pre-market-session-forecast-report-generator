@@ -8,6 +8,7 @@ import type {
   MathAuditReport,
   StrategyWeights,
 } from '../src/types/forecast.ts';
+import { FORECAST_SCHEMA_VERSION } from '../src/types/forecast.ts';
 
 export interface HorizonSpec {
   key: HorizonKey;
@@ -426,7 +427,7 @@ export function auditAndReconcileForecast(
 
   const auditedPayload: ForecastPayload = {
     ...payload,
-    schema_version: '1.1.0',
+    schema_version: FORECAST_SCHEMA_VERSION,
     return_type: 'simple_pct',
     execution_signals: {
       ...payload.execution_signals,
