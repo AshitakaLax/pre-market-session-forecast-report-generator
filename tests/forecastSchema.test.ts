@@ -41,7 +41,31 @@ describe('forecast record JSON Schema', () => {
     delete record.verification;
     delete record.snapshot.base_session_date;
     delete record.snapshot.futures_daily_change_pct;
+    delete record.idempotency_key;
+    for (const key of Object.keys(record.snapshot)) {
+      if (key.startsWith('premarket_window_')) delete record.snapshot[key];
+    }
     assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('accepts legacy records that carry the deprecated premarket_30m_* fields', () => {
+    const record = sample() as unknown as { snapshot: Record<string, unknown> };
+    for (const key of Object.keys(record.snapshot)) {
+      if (key.startsWith('premarket_window_')) delete record.snapshot[key];
+    }
+    Object.assign(record.snapshot, {
+      premarket_30m_high: 49.6,
+      premarket_30m_low: 49.05,
+      premarket_30m_change_pct: 0.45,
+      premarket_30m_volume: 182_400,
+    });
+    assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('rejects a pre-market window bound that is not an HH:MM time', () => {
+    const record = sample();
+    record.snapshot.premarket_window_end_et = '4:05am';
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot/premarket_window_end_et']);
   });
 
   it('rejects unexpected properties so new fields cannot drift past the schema', () => {

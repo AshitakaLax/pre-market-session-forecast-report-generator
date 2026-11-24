@@ -38,6 +38,11 @@ SIMULATIONS = max(1000, int(os.getenv("CHRONOS_SIMULATIONS", "10000")))
 BLOCK_LENGTH = max(2, int(os.getenv("CHRONOS_BLOCK_LENGTH", "5")))
 CACHE_TTL_SECONDS = max(60, int(os.getenv("MARKET_DATA_CACHE_SECONDS", "600")))
 API_TOKEN = os.getenv("CHRONOS_API_TOKEN", "")
+# Opening pre-market window summarised in the snapshot; must be fully elapsed at report
+# time (scheduled runs start 04:05 ET). End is exclusive. Keep in sync with
+# src/constants/premarketWindow.ts.
+PREMARKET_WINDOW_START = clock_time(4, 0)
+PREMARKET_WINDOW_END = clock_time(4, 5)
 NY = ZoneInfo("America/New_York")
 
 MODEL: Chronos2Pipeline | None = None
@@ -181,10 +186,10 @@ def _last_complete_daily_history(frame: pd.DataFrame, now_et: datetime) -> pd.Da
 def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
     result = {
         "open_4am": None,
-        "high_30m": None,
-        "low_30m": None,
-        "change_30m_pct": None,
-        "volume_30m": None,
+        "high_window": None,
+        "low_window": None,
+        "change_window_pct": None,
+        "volume_window": None,
         "latest_price": None,
     }
     if now_et.weekday() >= 5 or now_et.time() >= clock_time(9, 30) or now_et.time() < clock_time(4, 0):
@@ -207,7 +212,15 @@ def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
         frame.index = index.tz_convert(NY)
         today = frame.loc[frame.index.date == now_et.date()]
         pre = today.between_time("04:00", "09:29")
-        opening = today.between_time("04:00", "04:29")
+        # Only a fully elapsed window is summarised, so values are stable across retries.
+        if now_et.time() >= PREMARKET_WINDOW_END:
+            opening = today.between_time(
+                PREMARKET_WINDOW_START.strftime("%H:%M"),
+                PREMARKET_WINDOW_END.strftime("%H:%M"),
+                inclusive="left",
+            )
+        else:
+            opening = today.iloc[0:0]
         if not pre.empty:
             result["latest_price"] = float(pre["Close"].iloc[-1])
         if not opening.empty:
@@ -216,10 +229,10 @@ def _intraday_premarket(symbol: str, now_et: datetime) -> dict[str, Any]:
             result.update(
                 {
                     "open_4am": float(first["Open"]),
-                    "high_30m": float(opening["High"].max()),
-                    "low_30m": float(opening["Low"].min()),
-                    "change_30m_pct": float((last["Close"] / first["Open"] - 1) * 100),
-                    "volume_30m": float(opening["Volume"].fillna(0).sum()),
+                    "high_window": float(opening["High"].max()),
+                    "low_window": float(opening["Low"].min()),
+                    "change_window_pct": float((last["Close"] / first["Open"] - 1) * 100),
+                    "volume_window": float(opening["Volume"].fillna(0).sum()),
                 }
             )
     except Exception as exc:
@@ -388,11 +401,13 @@ def _premarket_snapshot(
     return {
         "pre_market_or_latest_price": float(latest) if latest is not None else None,
         "pre_market_change_pct": float(change) if change is not None else None,
+        "premarket_window_start_et": PREMARKET_WINDOW_START.strftime("%H:%M"),
+        "premarket_window_end_et": PREMARKET_WINDOW_END.strftime("%H:%M"),
         "premarket_open_4am": minute["open_4am"],
-        "premarket_30m_high": minute["high_30m"],
-        "premarket_30m_low": minute["low_30m"],
-        "premarket_30m_change_pct": minute["change_30m_pct"],
-        "premarket_30m_volume": minute["volume_30m"],
+        "premarket_window_high": minute["high_window"],
+        "premarket_window_low": minute["low_window"],
+        "premarket_window_change_pct": minute["change_window_pct"],
+        "premarket_window_volume": minute["volume_window"],
     }, missing
 
 
@@ -802,6 +817,32 @@ def health():
             int(os.getenv("CHRONOS_DIRECT_HORIZON", "64")),
             int(getattr(MODEL, "model_prediction_length", 64)) if MODEL is not None else 64,
         ),
+    }
+
+
+@app.get("/calendar")
+def market_calendar(start: date, end: date, authorization: str | None = Header(default=None)):
+    """NASDAQ sessions (with early closes) from pandas-market-calendars, for the scheduler."""
+    authorize(authorization)
+    if end < start or (end - start).days > 800:
+        raise HTTPException(status_code=422, detail="end must be on/after start, within 800 days.")
+    calendar = mcal.get_calendar("NASDAQ")
+    schedule = calendar.schedule(start_date=start, end_date=end)
+    sessions = []
+    for session_date, row in schedule.iterrows():
+        close_et = row["market_close"].tz_convert(NY)
+        sessions.append(
+            {
+                "date": session_date.date().isoformat(),
+                "close_et": close_et.strftime("%H:%M"),
+                "early_close": close_et.time() < clock_time(16, 0),
+            }
+        )
+    return {
+        "source": "pandas_market_calendars:NASDAQ",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "sessions": sessions,
     }
 
 
