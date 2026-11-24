@@ -19,7 +19,10 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run lint
-      - run: npm test
+      - name: Forecast JSON Schema tests
+        run: npm test
+      - name: Validate stored and example forecast JSON
+        run: npm run validate:forecasts -- data/forecasts.json schemas/examples/forecast-record.example.json
       - run: npm run build
 
   chronos-python:
@@ -37,11 +40,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
           python -m pip install -r chronos_service/requirements.txt
+          python -m pip install -r chronos_service/requirements-dev.txt
       - name: Verify Chronos runtime imports
         working-directory: chronos_service
         run: python -c "from chronos import Chronos2Pipeline; from app import app; print('Chronos-2 service imports successfully')"
       - name: Compile and test scenario construction
         working-directory: chronos_service
         run: |
-          python -m py_compile app.py scenarios.py walk_forward.py test_scenarios.py
+          python -m py_compile app.py scenarios.py walk_forward.py test_scenarios.py test_forecast_schema.py
           python -m unittest discover -s . -p "test_*.py"

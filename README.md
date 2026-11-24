@@ -46,6 +46,25 @@ Open the Vite URL shown in the terminal. The **Model & Data** tab shows whether 
 - 10,000 paths by default, aggregated into the app's 1D, 5D, 21D, 63D and 252D distributions.
 - Existing TypeScript probability/moment/CDF reconciliation audit.
 
+## Forecast JSON contract
+
+Every forecast record is validated before it is saved or published. If it fails, the run errors out (the scheduler records `Failed … failed JSON Schema validation: <path> <reason>`) and nothing invalid is written to `data/forecasts.json`.
+
+- **Schema:** [`schemas/forecast-record.schema.json`](schemas/forecast-record.schema.json) (JSON Schema draft 2020-12). It describes payload `schema_version` `1.1.0` and mirrors `src/types/forecast.ts`. Objects are closed (`additionalProperties: false`), enums are explicit, probabilities are bounded to [0, 1], simple-return values (bin `min_pct`, mean, median, every quantile and expected shortfall) are bounded below by -100% because a long position cannot lose more than everything, each horizon has exactly 10 bins with its `trading_days` fixed (1/5/21/63/252), and timestamps must be RFC 3339 with an offset.
+- **Semantic rules** that JSON Schema cannot express are in [`server/forecastValidation.ts`](server/forecastValidation.ts): probability mass sums to 1, each CDF equals underflow plus cumulative bin mass, bins are contiguous, no underflow mass sits at or below -100%, quantiles are ordered (p01 ≤ … ≤ p99), expected shortfall ≤ p05, strategy weights sum to 1, the audit covers every horizon exactly once and passed, and the snapshot and payload symbols match.
+- **Example:** [`schemas/examples/forecast-record.example.json`](schemas/examples/forecast-record.example.json), regenerated with `npm run schema:example`.
+
+~~~bash
+npm test                                    # schema + semantic rule tests
+npm run validate:forecasts                  # validate data/forecasts.json
+npm run validate:forecasts -- path/to/record.json other.json
+npm run reaudit:forecasts                   # recompute stored summaries after audit-math changes
+~~~
+
+At runtime, `GET /api/schemas/forecast-record` serves the schema, and `POST /api/forecasts/validate` with a record as the body returns `{ valid, schema_id, issues[] }` (HTTP 422 when invalid). Python consumers can validate with `jsonschema` (see `chronos_service/test_forecast_schema.py`, which cross-checks the schema with a second implementation).
+
+**Changing the contract:** update the schema, `src/types/forecast.ts` and `tests/fixtures/sampleForecastRecord.ts` together. Bump `schema_version` and the schema `$id` whenever the payload shape changes, then run `npm run schema:example`. If a change to `server/mathAudit.ts` alters derived summaries, run `npm run reaudit:forecasts`. It rewrites only the moments, quantiles and expected shortfall of stored records, and it refuses to write if any bin probability would change.
+
 ## Accuracy and limitations
 
 Chronos-2 is zero-shot in this implementation; it has not been fine-tuned or calibrated specifically for TQQQ. A strong benchmark result on general time-series datasets does not establish financial-market predictive ability.

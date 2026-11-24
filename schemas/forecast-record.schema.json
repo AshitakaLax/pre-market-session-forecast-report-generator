@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meridian-quant.local/schemas/forecast-record/1.1.0/forecast-record.schema.json",
+  "title": "Meridian Quant forecast record",
+  "description": "One persisted pre-market forecast record (payload schema_version 1.1.0). This file is the language-neutral contract for the JSON produced by server/forecastEngine.ts, server/publicChronosAdapter.ts, server/mathAudit.ts and chronos_service/app.py, and mirrors src/types/forecast.ts. Structural rules live here; cross-field rules that JSON Schema cannot express (probabilities summing to 1, CDF consistency, quantile ordering, strategy weights summing to 1) are enforced by server/forecastValidation.ts.",
+  "$ref": "#/$defs/ForecastRecord",
+  "$defs": {
+    "ForecastRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "created_at",
+        "trigger",
+        "calibration_mode",
+        "run_window",
+        "payload",
+        "snapshot",
+        "sources",
+        "audit"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "created_at": { "$ref": "#/$defs/DateTime" },
+        "trigger": { "enum": ["manual", "scheduled"] },
+        "calibration_mode": { "$ref": "#/$defs/CalibrationMode" },
+        "run_window": { "$ref": "#/$defs/RunWindow" },
+        "payload": { "$ref": "#/$defs/ForecastPayload" },
+        "snapshot": { "$ref": "#/$defs/MarketSnapshot" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GroundingSource" }
+        },
+        "audit": { "$ref": "#/$defs/MathAuditReport" },
+        "verification": { "$ref": "#/$defs/RealizedVerification" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-supplied key (e.g. Cloud Scheduler schedule time) used to dedupe task triggers."
+        }
+      }
+    },
+
+    "ForecastPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "symbol",
+        "as_of",
+        "base_price",
+        "return_type",
+        "model",
+        "execution_signals",
+        "horizons"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.1.0",
+          "description": "Payload contract version. Bump it, and publish a new schema file, whenever the payload shape changes."
+        },
+        "symbol": { "$ref": "#/$defs/Ticker" },
+        "as_of": { "$ref": "#/$defs/DateTime" },
+        "base_price": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Last completed regular-session close that all horizon returns are measured from."
+        },
+        "return_type": { "const": "simple_pct" },
+        "model": { "type": "string", "minLength": 1 },
+        "execution_signals": { "$ref": "#/$defs/ExecutionSignals" },
+        "horizons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tomorrow", "next_week", "next_month", "next_quarter", "next_year"],
+          "properties": {
+            "tomorrow": {
+              "$ref": "#/$defs/HorizonForecast",
+              "type": "object",
+              "properties": { "trading_days": { "const": 1 } }
+            },
+            "next_week": {
+              "$ref": "#/$defs/HorizonForecast",
+              "type": "object",
+              "properties": { "trading_days": { "const": 5 } }
+            },
+            "next_month": {
+              "$ref": "#/$defs/HorizonForecast",
+              "type": "object",
+              "properties": { "trading_days": { "const": 21 } }
+            },
+            "next_quarter": {
+              "$ref": "#/$defs/HorizonForecast",
+              "type": "object",
+              "properties": { "trading_days": { "const": 63 } }
+            },
+            "next_year": {
+              "$ref": "#/$defs/HorizonForecast",
+              "type": "object",
+              "properties": { "trading_days": { "const": 252 } }
+            }
+          }
+        }
+      }
+    },
+
+    "ExecutionSignals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data_quality",
+        "regime",
+        "volatility_state",
+        "implied_vs_realized_vol_spread_pct",
+        "expected_1d_move_pct",
+        "skew_bias",
+        "overnight_gap_risk",
+        "kelly_fraction_cap",
+        "next_day_catalysts",
+        "suggested_strategy_weights"
+      ],
+      "properties": {
+        "data_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["confidence_score", "source_coverage", "missing_inputs"],
+          "properties": {
+            "confidence_score": { "$ref": "#/$defs/UnitInterval" },
+            "source_coverage": { "$ref": "#/$defs/SourceCoverage" },
+            "missing_inputs": { "$ref": "#/$defs/StringList" }
+          }
+        },
+        "regime": {
+          "enum": [
+            "low_vol_uptrend",
+            "high_vol_downtrend",
+            "mean_reverting_range",
+            "breakout_expansion",
+            "event_driven"
+          ]
+        },
+        "volatility_state": { "enum": ["compressed", "normal", "elevated", "extreme"] },
+        "implied_vs_realized_vol_spread_pct": { "type": "number" },
+        "expected_1d_move_pct": { "type": "number", "minimum": 0 },
+        "skew_bias": { "enum": ["bearish_tail", "neutral", "bullish_tail"] },
+        "overnight_gap_risk": { "enum": ["low", "moderate", "high"] },
+        "kelly_fraction_cap": { "$ref": "#/$defs/UnitInterval" },
+        "next_day_catalysts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CatalystItem" }
+        },
+        "suggested_strategy_weights": { "$ref": "#/$defs/StrategyWeights" }
+      }
+    },
+
+    "StrategyWeights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["momentum_trend", "mean_reversion", "volatility_harvesting", "cash_defensive"],
+      "properties": {
+        "momentum_trend": { "$ref": "#/$defs/UnitInterval" },
+        "mean_reversion": { "$ref": "#/$defs/UnitInterval" },
+        "volatility_harvesting": { "$ref": "#/$defs/UnitInterval" },
+        "cash_defensive": { "$ref": "#/$defs/UnitInterval" }
+      }
+    },
+
+    "CatalystItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time_utc", "event", "impact"],
+      "properties": {
+        "time_utc": { "$ref": "#/$defs/DateTime" },
+        "event": { "type": "string", "minLength": 1 },
+        "impact": { "enum": ["low", "medium", "high"] }
+      }
+    },
+
+    "HorizonForecast": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "trading_days",
+        "bin_width_pct",
+        "underflow_prob",
+        "overflow_prob",
+        "bins",
+        "summary"
+      ],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "trading_days": { "type": "integer", "minimum": 1, "maximum": 252 },
+        "bin_width_pct": { "type": "number", "exclusiveMinimum": 0 },
+        "underflow_prob": {
+          "$ref": "#/$defs/UnitInterval",
+          "description": "Probability mass below bins[0].min_pct."
+        },
+        "overflow_prob": {
+          "$ref": "#/$defs/UnitInterval",
+          "description": "Probability mass above bins[9].max_pct."
+        },
+        "bins": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/BinItem" }
+        },
+        "summary": { "$ref": "#/$defs/HorizonSummary" }
+      }
+    },
+
+    "SimpleReturnPct": {
+      "type": "number",
+      "minimum": -100,
+      "description": "Cumulative simple return in percent. A long position cannot lose more than 100%, so values below -100 are impossible."
+    },
+
+    "BinItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_pct", "max_pct", "prob", "cdf"],
+      "properties": {
+        "min_pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "max_pct": { "type": "number" },
+        "prob": { "$ref": "#/$defs/UnitInterval" },
+        "cdf": {
+          "$ref": "#/$defs/UnitInterval",
+          "description": "Cumulative probability through max_pct, including underflow_prob."
+        }
+      }
+    },
+
+    "HorizonSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mean_pct",
+        "median_pct",
+        "std_pct",
+        "prob_positive",
+        "expected_shortfall_5pct",
+        "quantiles_pct"
+      ],
+      "properties": {
+        "mean_pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "median_pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "std_pct": { "type": "number", "minimum": 0 },
+        "prob_positive": { "$ref": "#/$defs/UnitInterval" },
+        "expected_shortfall_5pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "quantiles_pct": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p01", "p05", "p25", "p75", "p95", "p99"],
+          "properties": {
+            "p01": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p05": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p25": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p75": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p95": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p99": { "$ref": "#/$defs/SimpleReturnPct" }
+          }
+        }
+      }
+    },
+
+    "MarketSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol",
+        "underlying_symbol",
+        "leverage_factor",
+        "as_of_utc",
+        "market_session_phase",
+        "prev_close",
+        "premarket_open_4am",
+        "pre_market_or_latest_price",
+        "pre_market_change_pct",
+        "intraday_high",
+        "intraday_low",
+        "five_day_return_pct",
+        "twenty_day_return_pct",
+        "overnight_futures_symbol",
+        "overnight_futures_change_pct",
+        "vix_level",
+        "vxn_level",
+        "vix9d_level",
+        "vix3m_level",
+        "symbol_iv_pct",
+        "iv_rank_pct",
+        "put_call_ratio",
+        "realized_vol_20d_pct",
+        "us_2y_yield_pct",
+        "us_10y_yield_pct",
+        "dxy_level",
+        "wti_crude_usd",
+        "fed_watch_summary",
+        "key_headlines",
+        "next_day_catalysts",
+        "missing_inputs",
+        "confidence_score",
+        "source_coverage",
+        "raw_research_notes"
+      ],
+      "properties": {
+        "symbol": { "$ref": "#/$defs/Ticker" },
+        "underlying_symbol": { "$ref": "#/$defs/Ticker" },
+        "leverage_factor": { "type": "number", "exclusiveMinimum": 0 },
+        "base_session_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Last completed daily session used to anchor the forecast base price."
+        },
+        "as_of_utc": { "$ref": "#/$defs/DateTime" },
+        "market_session_phase": { "enum": ["closed", "pre_market", "regular_open", "after_hours"] },
+        "prev_close": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_open_4am": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_window_start_et": {
+          "$ref": "#/$defs/ClockTimeET",
+          "description": "Start of the opening pre-market window summarised by premarket_window_* (see src/constants/premarketWindow.ts)."
+        },
+        "premarket_window_end_et": {
+          "$ref": "#/$defs/ClockTimeET",
+          "description": "Exclusive end of the opening pre-market window; fully elapsed at report time."
+        },
+        "premarket_window_high": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_window_low": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_window_change_pct": { "$ref": "#/$defs/NullableNumber" },
+        "premarket_window_volume": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "premarket_30m_high": {
+          "$ref": "#/$defs/NullablePositiveNumber",
+          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
+        },
+        "premarket_30m_low": {
+          "$ref": "#/$defs/NullablePositiveNumber",
+          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
+        },
+        "premarket_30m_change_pct": {
+          "$ref": "#/$defs/NullableNumber",
+          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
+        },
+        "premarket_30m_volume": {
+          "$ref": "#/$defs/NullableNonNegativeNumber",
+          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
+        },
+        "pre_market_or_latest_price": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "pre_market_change_pct": { "$ref": "#/$defs/NullableNumber" },
+        "intraday_high": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "intraday_low": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "five_day_return_pct": { "$ref": "#/$defs/NullableNumber" },
+        "twenty_day_return_pct": { "$ref": "#/$defs/NullableNumber" },
+        "overnight_futures_symbol": { "$ref": "#/$defs/Ticker" },
+        "overnight_futures_change_pct": {
+          "$ref": "#/$defs/NullableNumber",
+          "description": "True overnight futures change (prior cash close to snapshot time). Null until an intraday futures source is connected."
+        },
+        "futures_daily_change_pct": {
+          "$ref": "#/$defs/NullableNumber",
+          "description": "Daily close-to-close futures return; not an overnight-only measurement."
+        },
+        "vix_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "vxn_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "vix9d_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "vix3m_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "symbol_iv_pct": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "iv_rank_pct": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "put_call_ratio": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "realized_vol_20d_pct": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "us_2y_yield_pct": { "$ref": "#/$defs/NullableNumber" },
+        "us_10y_yield_pct": { "$ref": "#/$defs/NullableNumber" },
+        "dxy_level": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "wti_crude_usd": {
+          "$ref": "#/$defs/NullableNumber",
+          "description": "Front-month WTI futures price. Can be negative (April 2020), so no lower bound."
+        },
+        "fed_watch_summary": { "type": "string" },
+        "key_headlines": { "$ref": "#/$defs/StringList" },
+        "next_day_catalysts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CatalystItem" }
+        },
+        "missing_inputs": { "$ref": "#/$defs/StringList" },
+        "confidence_score": { "$ref": "#/$defs/UnitInterval" },
+        "source_coverage": { "$ref": "#/$defs/SourceCoverage" },
+        "raw_research_notes": { "type": "string" }
+      }
+    },
+
+    "GroundingSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "uri", "domain"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "format": "uri" },
+        "domain": { "type": "string", "format": "hostname" }
+      }
+    },
+
+    "MathAuditReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audited_at",
+        "all_passed",
+        "strategy_weight_raw_sum",
+        "strategy_weight_reconciled_sum",
+        "horizons"
+      ],
+      "properties": {
+        "audited_at": { "$ref": "#/$defs/DateTime" },
+        "all_passed": { "type": "boolean" },
+        "strategy_weight_raw_sum": { "type": "number", "minimum": 0 },
+        "strategy_weight_reconciled_sum": { "type": "number", "minimum": 0 },
+        "horizons": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/HorizonAuditEntry" }
+        }
+      }
+    },
+
+    "HorizonAuditEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "horizon",
+        "raw_prob_sum",
+        "reconciled_prob_sum",
+        "cdf_monotonic",
+        "quantiles_coherent",
+        "adjustment_applied_bp"
+      ],
+      "properties": {
+        "horizon": { "$ref": "#/$defs/HorizonKey" },
+        "raw_prob_sum": { "type": "number", "minimum": 0 },
+        "reconciled_prob_sum": { "type": "number", "minimum": 0 },
+        "cdf_monotonic": { "type": "boolean" },
+        "quantiles_coherent": { "type": "boolean" },
+        "adjustment_applied_bp": { "type": "integer" }
+      }
+    },
+
+    "RealizedVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified_at",
+        "target_horizon",
+        "actual_close_price",
+        "actual_return_pct",
+        "brier_score",
+        "within_iqr_p25_p75",
+        "within_90_p05_p95",
+        "notes",
+        "sources"
+      ],
+      "properties": {
+        "verified_at": { "$ref": "#/$defs/DateTime" },
+        "target_horizon": { "enum": ["tomorrow", "next_week"] },
+        "actual_close_price": { "type": "number", "exclusiveMinimum": 0 },
+        "actual_return_pct": { "type": "number" },
+        "brier_score": { "$ref": "#/$defs/UnitInterval" },
+        "within_iqr_p25_p75": { "type": "boolean" },
+        "within_90_p05_p95": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GroundingSource" }
+        }
+      }
+    },
+
+    "HorizonKey": {
+      "enum": ["tomorrow", "next_week", "next_month", "next_quarter", "next_year"]
+    },
+    "CalibrationMode": { "enum": ["leveraged_scaled", "original_1x"] },
+    "RunWindow": { "enum": ["pre_market", "pre_bell", "eod"] },
+    "SourceCoverage": { "enum": ["primary_verified", "mixed", "degraded"] },
+    "Ticker": {
+      "type": "string",
+      "pattern": "^[A-Z0-9^][A-Z0-9.\\-=^]{0,15}$",
+      "description": "Upper-case market symbol as used by the data adapter, e.g. TQQQ, NQ=F, ^VXN, DX-Y.NYB."
+    },
+    "DateTime": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp with an explicit offset (Z or ±hh:mm)."
+    },
+    "ClockTimeET": {
+      "type": "string",
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      "description": "Wall-clock time in America/New_York, HH:MM (24-hour)."
+    },
+    "UnitInterval": { "type": "number", "minimum": 0, "maximum": 1 },
+    "NullableNumber": { "type": ["number", "null"] },
+    "NullableNonNegativeNumber": { "type": ["number", "null"], "minimum": 0 },
+    "NullablePositiveNumber": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "StringList": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

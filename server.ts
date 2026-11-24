@@ -15,6 +15,7 @@ import {
   saveForecast,
   writeScheduleConfig,
 } from './server/storage.ts';
+import { FORECAST_RECORD_SCHEMA, validateForecastRecord } from './server/forecastValidation.ts';
 import { easternClockAt } from './server/easternClock.ts';
 import { resolveTradingDayNow } from './server/marketCalendar.ts';
 import { notifyMissedDeadline, notifyValidated } from './server/notify.ts';
@@ -183,6 +184,17 @@ async function startServer() {
 
   app.get('/api/forecasts', (_req, res) => {
     res.json({ forecasts: readForecasts() });
+  });
+
+  // JSON Schema (draft 2020-12) that every persisted forecast record satisfies.
+  app.get('/api/schemas/forecast-record', (_req, res) => {
+    res.type('application/schema+json').send(JSON.stringify(FORECAST_RECORD_SCHEMA, null, 2));
+  });
+
+  // Validate an arbitrary forecast record (schema + cross-field probability rules).
+  app.post('/api/forecasts/validate', (req, res) => {
+    const outcome = validateForecastRecord(req.body);
+    res.status(outcome.valid ? 200 : 422).json(outcome);
   });
 
   app.get('/api/forecasts/:id', (req, res) => {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { ForecastRecord, ScheduleConfig } from '../src/types/forecast.ts';
+import { assertValidForecastRecord } from './forecastValidation.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const FORECASTS_FILE = path.join(DATA_DIR, 'forecasts.json');
@@ -54,7 +55,13 @@ export function writeForecasts(records: ForecastRecord[]): void {
   fs.renameSync(tmp, FORECASTS_FILE);
 }
 
+/**
+ * Persist a forecast record. The record must satisfy
+ * schemas/forecast-record.schema.json and the semantic probability rules;
+ * otherwise a ForecastValidationError is thrown and nothing is written.
+ */
 export function saveForecast(record: ForecastRecord): void {
+  assertValidForecastRecord(record);
   const existing = readForecasts();
   const updated = [record, ...existing.filter((r) => r.id !== record.id)].slice(0, 120);
   writeForecasts(updated);
