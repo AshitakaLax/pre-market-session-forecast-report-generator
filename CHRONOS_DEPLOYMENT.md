@@ -92,6 +92,51 @@ Copy the service URL printed by `gcloud run` into the Node app's `CHRONOS_SERVIC
 
 For a local, no-hosted-API setup, use the Docker or Windows instructions above instead.
 
+## Scheduling the daily pre-market report (ready by 04:30 ET)
+
+Goal: a validated forecast record exists for every US trading day by **04:30 ET**; trading starts at 05:00 ET.
+
+### How the timing works
+
+- **Start 04:05 ET**, not 04:30. Chronos-2 inference, data fetches and (on Cloud Run) a cold model load all need headroom before the deadline.
+- **Retries until 04:25 ET.** "Attempted" and "succeeded" are tracked separately (`last_scheduled_run_date_et` vs `last_successful_run_date_et`). A failed run (Yahoo 429, Chronos timeout, audit failure) is retried with 30s/60s/120s backoff the same morning. Only a record whose deterministic audit passed (`audit.all_passed`) counts as success.
+- **Idempotent per ET date + symbol (+ run window + calibration mode).** `POST /api/tasks/premarket` returns the existing validated record instead of creating another. Concurrent triggers share one in-flight run. A caller-supplied key (`X-CloudScheduler-ScheduleTime` or `Idempotency-Key`) is stored on the record and dedupes replays. `force=true` bypasses the check.
+- **Failures return HTTP 500** (with per-symbol `failures`), so the external scheduler's retry policy re-triggers; successful symbols are not re-run.
+- **Opening window is 04:00-04:05 ET** (`premarket_window_*` snapshot fields, constants in `src/constants/premarketWindow.ts` and `chronos_service/app.py`). It is only summarised once fully elapsed. These replace the old `premarket_30m_*` fields, which covered 04:00-04:30 and could not be complete at report time; older stored records still render through a legacy fallback.
+- **Holidays and early closes** come from `pandas-market-calendars` (NASDAQ) via the Chronos service's `GET /calendar`, cached in `data/market_calendar.json`. If the calendar is unreachable and uncached, the scheduler fails open to a weekday rule (a holiday run is harmless; a skipped trading day is not). Without the Python service (public-adapter mode) only the weekday rule is available.
+
+### Recommended trigger: Cloud Scheduler
+
+The in-process 30s timer does not survive scale-to-zero or restarts, so use an external trigger as the primary and keep the in-process scheduler as a second line.
+
+~~~bash
+gcloud scheduler jobs create http meridian-premarket \
+  --location us-central1 \
+  --schedule "5 4 * * 1-5" \
+  --time-zone "America/New_York" \
+  --uri "https://YOUR-NODE-APP/api/tasks/premarket" \
+  --http-method POST \
+  --headers "Content-Type=application/json,Authorization=Bearer $CRON_SECRET" \
+  --message-body '{}' \
+  --attempt-deadline 600s \
+  --max-retry-duration 20m \
+  --min-backoff 30s --max-backoff 120s --max-doublings 2 \
+  --max-retry-attempts 10
+~~~
+
+`America/New_York` makes Cloud Scheduler follow DST. The attempt deadline must cover a cold Chronos start plus inference. Use `--min 1` on the Chronos service (see above) so the model is already loaded at 04:05. Cloud Scheduler only retries non-2xx responses, which is why failures return 500. Market holidays return 200 `{skipped: true}`.
+
+GitHub Actions `schedule:` cron is **backup only**: scheduled runs can be delayed by many minutes or dropped under load, which is incompatible with a 25-minute window. Its cron is UTC-only, so cover DST with two entries (`5 8 * * 1-5` and `5 9 * * 1-5`); the endpoint skips the one that fires at 03:05 ET (before the configured start) and is idempotent for the other, so the double trigger is safe.
+
+### Alerting and dead-man's switch
+
+Set on the Node app:
+
+- `HEALTHCHECK_PING_URL`: a Healthchecks.io ping URL. Pinged after each newly validated save, and `/fail` is pinged when the 04:25 cutoff passes without a validated record. Configure the check as a weekday 04:05 ET schedule with a grace period ending at 04:30 ET so a dead app or scheduler also alerts.
+- `ALERT_WEBHOOK_URL`: receives `{"text": ..., "date_et": ..., "missing_symbols": [...]}` (Slack/Discord-compatible) on a missed deadline.
+
+A missed day is **not** papered over with a fabricated forecast; it is surfaced as an alert and in `GET /api/tasks/premarket/status` (HTTP 503 with `pending_symbols` on a trading day until validated; accepts the same `CRON_SECRET` bearer token).
+
 ## Connecting the TypeScript app
 
 Set these variables in the Node app environment:

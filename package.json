@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test \"tests/**/*.test.ts\"",
     "validate:forecasts": "tsx scripts/validate-forecasts.ts",
     "schema:example": "tsx scripts/write-schema-example.ts",
     "reaudit:forecasts": "tsx scripts/reaudit-forecasts.ts"

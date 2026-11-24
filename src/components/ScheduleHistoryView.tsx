@@ -36,7 +36,7 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
   onSaveSchedule,
 }) => {
   const [enabled, setEnabled] = useState(false);
-  const [timeEt, setTimeEt] = useState('04:30');
+  const [timeEt, setTimeEt] = useState('04:05');
   const [tradingDaysOnly, setTradingDaysOnly] = useState(true);
   const [symbolsInput, setSymbolsInput] = useState('TQQQ');
   const [calibrationMode, setCalibrationMode] = useState<CalibrationMode>('leveraged_scaled');
@@ -81,14 +81,13 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
 
     try {
       await onSaveSchedule({
+        ...(schedule as ScheduleConfig),
         enabled,
         time_et: timeEt,
         trading_days_only: tradingDaysOnly,
         symbols: symbols.length > 0 ? symbols : ['TQQQ'],
         calibration_mode: calibrationMode,
         run_window: runWindow,
-        last_scheduled_run_date_et: schedule?.last_scheduled_run_date_et ?? null,
-        last_run_status: schedule?.last_run_status ?? null,
       });
       setSaveNotice('Pre-market schedule updated.');
       setTimeout(() => setSaveNotice(null), 2500);
@@ -141,7 +140,7 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
               Daily Pre-Market Morning Automation
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Runs after the first 30 minutes of pre-market trading (04:00–04:30 ET) so your rest-of-day forecast is ready before 05:00 ET.
+              Starts at 04:05 ET (after the 04:00–04:05 ET opening window) and retries failures until the cutoff, so a validated forecast exists by 04:30 ET, ahead of 05:00 ET trading.
             </p>
           </div>
 
@@ -240,7 +239,7 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
 
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-200 text-xs text-slate-500">
           <div>
-            Recommended trigger: <span className="font-mono text-slate-700">04:30 ET</span> (captures 04:00–04:30 ET opening pre-market price discovery before 05:00 ET trading) or <span className="font-mono text-slate-700">08:35 ET</span> (post-08:30 ET macro prints).
+            Recommended start: <span className="font-mono text-slate-700">04:05 ET</span> (retries until the 04:25 ET cutoff so the report is validated by 04:30 ET) or <span className="font-mono text-slate-700">08:35 ET</span> (post-08:30 ET macro prints).
           </div>
           {saveNotice && (
             <span className="text-emerald-700 font-medium inline-flex items-center gap-1">
@@ -261,7 +260,7 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
-              External Scheduled Task Trigger (04:30 ET)
+              External Scheduled Task Trigger (04:05 ET)
             </h2>
             <p className="text-xs text-slate-600 mt-0.5">
               Trigger your deployed app headlessly via Cloud Scheduler, GitHub Actions, or crontab so morning runs execute even when your browser is closed. Uses the billing-enabled API key attached in Settings &gt; Secrets.
@@ -285,11 +284,11 @@ export const ScheduleHistoryView: React.FC<ScheduleHistoryViewProps> = ({
             </pre>
           </div>
           <div className="lg:col-span-5 space-y-1.5">
-            <div className="font-medium text-slate-700">Weekday 04:30 ET Cron Expression</div>
+            <div className="font-medium text-slate-700">Weekday 04:05 ET Cron Expression</div>
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-1.5 font-mono text-slate-800">
-              <div>30 4 * * 1-5  (TZ: America/New_York)</div>
+              <div>5 4 * * 1-5  (TZ: America/New_York)</div>
               <div className="font-sans text-slate-600">
-                Automatically skips US market holidays unless <code className="font-mono">force: true</code> is passed. Add <code className="font-mono">CRON_SECRET</code> in Secrets to require a Bearer token.
+                Idempotent per ET date and symbol (repeat triggers return the existing record). Skips market holidays from the exchange calendar unless <code className="font-mono">force: true</code> is passed. Add <code className="font-mono">CRON_SECRET</code> in Secrets to require a Bearer token.
               </div>
             </div>
           </div>

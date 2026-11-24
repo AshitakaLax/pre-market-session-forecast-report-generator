@@ -39,9 +39,24 @@ describe('forecast record JSON Schema', () => {
   it('accepts records without the optional fields', () => {
     const record = sample() as Partial<ForecastRecord> & { snapshot: Record<string, unknown> };
     delete record.verification;
+    delete record.idempotency_key;
     delete record.snapshot.base_session_date;
     delete record.snapshot.futures_daily_change_pct;
     assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('accepts a current snapshot without the legacy premarket_30m_* fields', () => {
+    const record = sample() as unknown as { snapshot: Record<string, unknown> };
+    for (const field of ['high', 'low', 'change_pct', 'volume']) {
+      delete record.snapshot[`premarket_30m_${field}`];
+    }
+    assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('rejects a malformed premarket window time', () => {
+    const record = sample();
+    record.snapshot.premarket_window_end_et = '4:05am';
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot/premarket_window_end_et']);
   });
 
   it('rejects unexpected properties so new fields cannot drift past the schema', () => {

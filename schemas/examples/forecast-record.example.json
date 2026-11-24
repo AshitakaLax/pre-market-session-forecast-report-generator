@@ -472,6 +472,12 @@
     "market_session_phase": "pre_market",
     "prev_close": 49.1,
     "premarket_open_4am": 49.32,
+    "premarket_window_start_et": "04:00",
+    "premarket_window_end_et": "04:05",
+    "premarket_window_high": 49.4,
+    "premarket_window_low": 49.05,
+    "premarket_window_change_pct": 0.2,
+    "premarket_window_volume": 41300,
     "premarket_30m_high": 49.6,
     "premarket_30m_low": 49.05,
     "premarket_30m_change_pct": 0.45,
@@ -570,6 +576,7 @@
       }
     ]
   },
+  "idempotency_key": "2026-11-24T09:05:00Z",
   "verification": {
     "verified_at": "2026-11-24T21:15:00.000Z",
     "target_horizon": "tomorrow",

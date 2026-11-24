@@ -11,6 +11,7 @@ import type {
   HorizonKey,
   MarketSnapshot,
 } from '../../src/types/forecast.ts';
+import { PREMARKET_WINDOW_END_ET, PREMARKET_WINDOW_START_ET } from '../../src/constants/premarketWindow.ts';
 
 /**
  * A fully populated forecast record built through the real audit code path.
@@ -119,6 +120,12 @@ export function buildSampleForecastRecord(): ForecastRecord {
     market_session_phase: 'pre_market',
     prev_close: 49.1,
     premarket_open_4am: 49.32,
+    premarket_window_start_et: PREMARKET_WINDOW_START_ET,
+    premarket_window_end_et: PREMARKET_WINDOW_END_ET,
+    premarket_window_high: 49.4,
+    premarket_window_low: 49.05,
+    premarket_window_change_pct: 0.2,
+    premarket_window_volume: 41_300,
     premarket_30m_high: 49.6,
     premarket_30m_low: 49.05,
     premarket_30m_change_pct: 0.45,
@@ -171,6 +178,7 @@ export function buildSampleForecastRecord(): ForecastRecord {
       },
     ],
     audit: { ...audit, audited_at: '2026-11-24T09:25:01.000Z' },
+    idempotency_key: '2026-11-24T09:05:00Z',
     verification: {
       verified_at: '2026-11-24T21:15:00.000Z',
       target_horizon: 'tomorrow',
