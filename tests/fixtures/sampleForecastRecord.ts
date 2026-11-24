@@ -11,6 +11,7 @@ import type {
   HorizonKey,
   MarketSnapshot,
 } from '../../src/types/forecast.ts';
+import { FORECAST_SCHEMA_VERSION } from '../../src/types/forecast.ts';
 import { PREMARKET_WINDOW_END_ET, PREMARKET_WINDOW_START_ET } from '../../src/constants/premarketWindow.ts';
 
 /**
@@ -77,7 +78,7 @@ export function buildSampleForecastRecord(): ForecastRecord {
   }
 
   const rawPayload: ForecastPayload = {
-    schema_version: '1.1.0',
+    schema_version: FORECAST_SCHEMA_VERSION,
     symbol: 'TQQQ',
     as_of: '2026-11-24T09:25:00.000Z',
     base_price: 49.1,
@@ -122,14 +123,10 @@ export function buildSampleForecastRecord(): ForecastRecord {
     premarket_open_4am: 49.32,
     premarket_window_start_et: PREMARKET_WINDOW_START_ET,
     premarket_window_end_et: PREMARKET_WINDOW_END_ET,
-    premarket_window_high: 49.4,
+    premarket_window_high: 49.6,
     premarket_window_low: 49.05,
-    premarket_window_change_pct: 0.2,
-    premarket_window_volume: 41_300,
-    premarket_30m_high: 49.6,
-    premarket_30m_low: 49.05,
-    premarket_30m_change_pct: 0.45,
-    premarket_30m_volume: 182_400,
+    premarket_window_change_pct: 0.45,
+    premarket_window_volume: 182_400,
     pre_market_or_latest_price: 49.41,
     pre_market_change_pct: 0.63,
     intraday_high: 50.44,
@@ -137,10 +134,12 @@ export function buildSampleForecastRecord(): ForecastRecord {
     five_day_return_pct: -7.41,
     twenty_day_return_pct: -28.25,
     overnight_futures_symbol: 'NQ=F',
-    overnight_futures_change_pct: 0.21,
+    overnight_futures_change_pct: -0.83,
     futures_daily_change_pct: 1.12,
     vix_level: 26.62,
+    vix_overnight_level: 27.4,
     vxn_level: 36.31,
+    rvx_level: null,
     vix9d_level: 27.9,
     vix3m_level: 25.4,
     symbol_iv_pct: 108.93,
@@ -160,6 +159,53 @@ export function buildSampleForecastRecord(): ForecastRecord {
     confidence_score: 0.8,
     source_coverage: 'mixed',
     raw_research_notes: 'Synthetic fixture used by tests/forecastSchema.test.ts.',
+    input_observations: [
+      {
+        field: 'overnight_futures_change_pct',
+        source: 'yahoo_chart_1m',
+        ticker: 'NQ=F',
+        kind: 'intraday_bar',
+        observed_at: '2026-11-24T09:10:00.000Z',
+        session_date: '2026-11-24',
+        reference_observed_at: '2026-11-23T20:59:00.000Z',
+      },
+      {
+        field: 'vix_overnight_level',
+        source: 'yahoo_chart_1m',
+        ticker: '^VIX',
+        kind: 'intraday_bar',
+        observed_at: '2026-11-24T09:05:00.000Z',
+        session_date: '2026-11-24',
+        reference_observed_at: null,
+      },
+      {
+        field: 'vix_level',
+        source: 'yahoo_chart_1d',
+        ticker: '^VIX',
+        kind: 'daily_close',
+        observed_at: null,
+        session_date: '2026-11-23',
+        reference_observed_at: null,
+      },
+      {
+        field: 'vix9d_level',
+        source: 'cboe_daily_csv',
+        ticker: 'VIX9D',
+        kind: 'daily_close',
+        observed_at: null,
+        session_date: '2026-11-23',
+        reference_observed_at: null,
+      },
+      {
+        field: 'iv_rank_pct',
+        source: 'cboe_daily_csv',
+        ticker: 'VXN',
+        kind: 'daily_close',
+        observed_at: null,
+        session_date: '2026-11-23',
+        reference_observed_at: null,
+      },
+    ],
   };
 
   return {
@@ -168,6 +214,7 @@ export function buildSampleForecastRecord(): ForecastRecord {
     trigger: 'scheduled',
     calibration_mode: 'leveraged_scaled',
     run_window: 'pre_market',
+    idempotency_key: '2026-11-24T09:05:00Z',
     payload,
     snapshot,
     sources: [
@@ -178,7 +225,6 @@ export function buildSampleForecastRecord(): ForecastRecord {
       },
     ],
     audit: { ...audit, audited_at: '2026-11-24T09:25:01.000Z' },
-    idempotency_key: '2026-11-24T09:05:00Z',
     verification: {
       verified_at: '2026-11-24T21:15:00.000Z',
       target_horizon: 'tomorrow',

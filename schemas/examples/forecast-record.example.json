@@ -4,8 +4,9 @@
   "trigger": "scheduled",
   "calibration_mode": "leveraged_scaled",
   "run_window": "pre_market",
+  "idempotency_key": "2026-11-24T09:05:00Z",
   "payload": {
-    "schema_version": "1.1.0",
+    "schema_version": "1.2.0",
     "symbol": "TQQQ",
     "as_of": "2026-11-24T09:25:00.000Z",
     "base_price": 49.1,
@@ -474,14 +475,10 @@
     "premarket_open_4am": 49.32,
     "premarket_window_start_et": "04:00",
     "premarket_window_end_et": "04:05",
-    "premarket_window_high": 49.4,
+    "premarket_window_high": 49.6,
     "premarket_window_low": 49.05,
-    "premarket_window_change_pct": 0.2,
-    "premarket_window_volume": 41300,
-    "premarket_30m_high": 49.6,
-    "premarket_30m_low": 49.05,
-    "premarket_30m_change_pct": 0.45,
-    "premarket_30m_volume": 182400,
+    "premarket_window_change_pct": 0.45,
+    "premarket_window_volume": 182400,
     "pre_market_or_latest_price": 49.41,
     "pre_market_change_pct": 0.63,
     "intraday_high": 50.44,
@@ -489,10 +486,12 @@
     "five_day_return_pct": -7.41,
     "twenty_day_return_pct": -28.25,
     "overnight_futures_symbol": "NQ=F",
-    "overnight_futures_change_pct": 0.21,
+    "overnight_futures_change_pct": -0.83,
     "futures_daily_change_pct": 1.12,
     "vix_level": 26.62,
+    "vix_overnight_level": 27.4,
     "vxn_level": 36.31,
+    "rvx_level": null,
     "vix9d_level": 27.9,
     "vix3m_level": 25.4,
     "symbol_iv_pct": 108.93,
@@ -519,7 +518,54 @@
     ],
     "confidence_score": 0.8,
     "source_coverage": "mixed",
-    "raw_research_notes": "Synthetic fixture used by tests/forecastSchema.test.ts."
+    "raw_research_notes": "Synthetic fixture used by tests/forecastSchema.test.ts.",
+    "input_observations": [
+      {
+        "field": "overnight_futures_change_pct",
+        "source": "yahoo_chart_1m",
+        "ticker": "NQ=F",
+        "kind": "intraday_bar",
+        "observed_at": "2026-11-24T09:10:00.000Z",
+        "session_date": "2026-11-24",
+        "reference_observed_at": "2026-11-23T20:59:00.000Z"
+      },
+      {
+        "field": "vix_overnight_level",
+        "source": "yahoo_chart_1m",
+        "ticker": "^VIX",
+        "kind": "intraday_bar",
+        "observed_at": "2026-11-24T09:05:00.000Z",
+        "session_date": "2026-11-24",
+        "reference_observed_at": null
+      },
+      {
+        "field": "vix_level",
+        "source": "yahoo_chart_1d",
+        "ticker": "^VIX",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      },
+      {
+        "field": "vix9d_level",
+        "source": "cboe_daily_csv",
+        "ticker": "VIX9D",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      },
+      {
+        "field": "iv_rank_pct",
+        "source": "cboe_daily_csv",
+        "ticker": "VXN",
+        "kind": "daily_close",
+        "observed_at": null,
+        "session_date": "2026-11-23",
+        "reference_observed_at": null
+      }
+    ]
   },
   "sources": [
     {
@@ -576,7 +622,6 @@
       }
     ]
   },
-  "idempotency_key": "2026-11-24T09:05:00Z",
   "verification": {
     "verified_at": "2026-11-24T21:15:00.000Z",
     "target_horizon": "tomorrow",

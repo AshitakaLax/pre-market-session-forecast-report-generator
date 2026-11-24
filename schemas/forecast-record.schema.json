@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://meridian-quant.local/schemas/forecast-record/1.1.0/forecast-record.schema.json",
+  "$id": "https://meridian-quant.local/schemas/forecast-record/1.2.0/forecast-record.schema.json",
   "title": "Meridian Quant forecast record",
-  "description": "One persisted pre-market forecast record (payload schema_version 1.1.0). This file is the language-neutral contract for the JSON produced by server/forecastEngine.ts, server/publicChronosAdapter.ts, server/mathAudit.ts and chronos_service/app.py, and mirrors src/types/forecast.ts. Structural rules live here; cross-field rules that JSON Schema cannot express (probabilities summing to 1, CDF consistency, quantile ordering, strategy weights summing to 1) are enforced by server/forecastValidation.ts.",
+  "description": "One persisted pre-market forecast record (payload schema_version 1.2.0). This file is the language-neutral contract for the JSON produced by server/forecastEngine.ts, server/publicChronosAdapter.ts, server/mathAudit.ts and chronos_service/app.py, and mirrors src/types/forecast.ts. Structural rules live here; cross-field rules that JSON Schema cannot express (probabilities summing to 1, CDF consistency, quantile ordering, strategy weights summing to 1) are enforced by server/forecastValidation.ts.",
   "$ref": "#/$defs/ForecastRecord",
   "$defs": {
     "ForecastRecord": {
@@ -36,6 +36,7 @@
         "idempotency_key": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 200,
           "description": "Caller-supplied key (e.g. Cloud Scheduler schedule time) used to dedupe task triggers."
         }
       }
@@ -56,8 +57,8 @@
       ],
       "properties": {
         "schema_version": {
-          "const": "1.1.0",
-          "description": "Payload contract version. Bump it, and publish a new schema file, whenever the payload shape changes."
+          "const": "1.2.0",
+          "description": "Contract version for the whole record. Bump it, and freeze the previous schema under schemas/history/, whenever the record shape changes. 1.2.0 added snapshot.vix_overnight_level, snapshot.rvx_level and snapshot.input_observations."
         },
         "symbol": { "$ref": "#/$defs/Ticker" },
         "as_of": { "$ref": "#/$defs/DateTime" },
@@ -301,7 +302,10 @@
         "missing_inputs",
         "confidence_score",
         "source_coverage",
-        "raw_research_notes"
+        "raw_research_notes",
+        "vix_overnight_level",
+        "rvx_level",
+        "input_observations"
       ],
       "properties": {
         "symbol": { "$ref": "#/$defs/Ticker" },
@@ -317,12 +321,12 @@
         "prev_close": { "$ref": "#/$defs/NullablePositiveNumber" },
         "premarket_open_4am": { "$ref": "#/$defs/NullablePositiveNumber" },
         "premarket_window_start_et": {
-          "$ref": "#/$defs/ClockTimeET",
-          "description": "Start of the opening pre-market window summarised by premarket_window_* (see src/constants/premarketWindow.ts)."
+          "$ref": "#/$defs/ClockTimeEt",
+          "description": "Start (inclusive) of the opening pre-market window summarised by premarket_window_* (src/constants/premarketWindow.ts)."
         },
         "premarket_window_end_et": {
-          "$ref": "#/$defs/ClockTimeET",
-          "description": "Exclusive end of the opening pre-market window; fully elapsed at report time."
+          "$ref": "#/$defs/ClockTimeEt",
+          "description": "End (exclusive) of the opening pre-market window; fully elapsed at report time."
         },
         "premarket_window_high": { "$ref": "#/$defs/NullablePositiveNumber" },
         "premarket_window_low": { "$ref": "#/$defs/NullablePositiveNumber" },
@@ -330,20 +334,12 @@
         "premarket_window_volume": { "$ref": "#/$defs/NullableNonNegativeNumber" },
         "premarket_30m_high": {
           "$ref": "#/$defs/NullablePositiveNumber",
-          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
+          "deprecated": true,
+          "description": "Legacy 04:00-04:30 field, present only on records created before the window redefinition."
         },
-        "premarket_30m_low": {
-          "$ref": "#/$defs/NullablePositiveNumber",
-          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
-        },
-        "premarket_30m_change_pct": {
-          "$ref": "#/$defs/NullableNumber",
-          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
-        },
-        "premarket_30m_volume": {
-          "$ref": "#/$defs/NullableNonNegativeNumber",
-          "description": "Deprecated: legacy 04:00-04:30 window on records created before premarket_window_*."
-        },
+        "premarket_30m_low": { "$ref": "#/$defs/NullablePositiveNumber", "deprecated": true },
+        "premarket_30m_change_pct": { "$ref": "#/$defs/NullableNumber", "deprecated": true },
+        "premarket_30m_volume": { "$ref": "#/$defs/NullableNonNegativeNumber", "deprecated": true },
         "pre_market_or_latest_price": { "$ref": "#/$defs/NullablePositiveNumber" },
         "pre_market_change_pct": { "$ref": "#/$defs/NullableNumber" },
         "intraday_high": { "$ref": "#/$defs/NullablePositiveNumber" },
@@ -353,21 +349,33 @@
         "overnight_futures_symbol": { "$ref": "#/$defs/Ticker" },
         "overnight_futures_change_pct": {
           "$ref": "#/$defs/NullableNumber",
-          "description": "True overnight futures change (prior cash close to snapshot time). Null until an intraday futures source is connected."
+          "description": "True overnight futures change in percent: latest 1-minute futures close divided by the futures price at the cash close (normally 4:00pm ET, the end of CME's settlement window) of the last completed session, minus 1. Null when either bar is unavailable or the latest bar is stale."
         },
         "futures_daily_change_pct": {
           "$ref": "#/$defs/NullableNumber",
           "description": "Daily close-to-close futures return; not an overnight-only measurement."
         },
-        "vix_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "vix_level": {
+          "$ref": "#/$defs/NullableNonNegativeNumber",
+          "description": "Prior-session VIX close."
+        },
+        "vix_overnight_level": {
+          "$ref": "#/$defs/NullableNonNegativeNumber",
+          "description": "Latest overnight VIX print (Cboe disseminates from 3:15am ET; Yahoo ~15 minutes delayed). Null outside 03:15-09:30 ET or when unavailable. Snapshot/display only, not a model covariate."
+        },
         "vxn_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "rvx_level": {
+          "$ref": "#/$defs/NullableNonNegativeNumber",
+          "description": "Cboe Russell 2000 volatility index close (Cboe daily CSV). Populated for Russell 2000 profiles; null otherwise."
+        },
         "vix9d_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
         "vix3m_level": { "$ref": "#/$defs/NullableNonNegativeNumber" },
         "symbol_iv_pct": { "$ref": "#/$defs/NullableNonNegativeNumber" },
         "iv_rank_pct": {
           "type": ["number", "null"],
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "Rank of the profile's volatility index (VIX, VXN or RVX) close within its trailing 252 daily closes: (last - min) / (max - min) * 100."
         },
         "put_call_ratio": { "$ref": "#/$defs/NullableNonNegativeNumber" },
         "realized_vol_20d_pct": { "$ref": "#/$defs/NullableNonNegativeNumber" },
@@ -387,8 +395,53 @@
         "missing_inputs": { "$ref": "#/$defs/StringList" },
         "confidence_score": { "$ref": "#/$defs/UnitInterval" },
         "source_coverage": { "$ref": "#/$defs/SourceCoverage" },
-        "raw_research_notes": { "type": "string" }
+        "raw_research_notes": { "type": "string" },
+        "input_observations": {
+          "type": "array",
+          "description": "Source and observation time of each populated market input. as_of_utc is when the snapshot was assembled; these say how old each input was.",
+          "items": { "$ref": "#/$defs/InputObservation" }
+        }
       }
+    },
+
+    "InputObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "source",
+        "ticker",
+        "kind",
+        "observed_at",
+        "session_date",
+        "reference_observed_at"
+      ],
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "description": "MarketSnapshot field this observation populates."
+        },
+        "source": { "enum": ["yahoo_chart_1m", "yahoo_chart_1d", "cboe_daily_csv"] },
+        "ticker": { "$ref": "#/$defs/Ticker" },
+        "kind": { "enum": ["intraday_bar", "daily_close"] },
+        "observed_at": {
+          "oneOf": [{ "$ref": "#/$defs/DateTime" }, { "type": "null" }],
+          "description": "intraday_bar: Yahoo 1-minute bar timestamp (bar start) whose close is used. null for daily_close."
+        },
+        "session_date": {
+          "type": "string",
+          "format": "date",
+          "description": "daily_close: session whose close is used. intraday_bar: America/New_York date of the bar."
+        },
+        "reference_observed_at": {
+          "oneOf": [{ "$ref": "#/$defs/DateTime" }, { "type": "null" }],
+          "description": "For change fields, timestamp of the reference bar (e.g. the 15:59 ET futures bar whose close is the 4:00pm price)."
+        }
+      },
+      "if": { "properties": { "kind": { "const": "intraday_bar" } } },
+      "then": { "properties": { "observed_at": { "$ref": "#/$defs/DateTime" } } },
+      "else": { "properties": { "observed_at": { "type": "null" } } }
     },
 
     "GroundingSource": {
@@ -488,15 +541,15 @@
       "pattern": "^[A-Z0-9^][A-Z0-9.\\-=^]{0,15}$",
       "description": "Upper-case market symbol as used by the data adapter, e.g. TQQQ, NQ=F, ^VXN, DX-Y.NYB."
     },
+    "ClockTimeEt": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "description": "24-hour HH:MM wall-clock time in America/New_York."
+    },
     "DateTime": {
       "type": "string",
       "format": "date-time",
       "description": "RFC 3339 timestamp with an explicit offset (Z or ±hh:mm)."
-    },
-    "ClockTimeET": {
-      "type": "string",
-      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
-      "description": "Wall-clock time in America/New_York, HH:MM (24-hour)."
     },
     "UnitInterval": { "type": "number", "minimum": 0, "maximum": 1 },
     "NullableNumber": { "type": ["number", "null"] },
