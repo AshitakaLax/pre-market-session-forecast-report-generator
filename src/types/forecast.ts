@@ -104,10 +104,18 @@ export interface MarketSnapshot {
   market_session_phase: string;
   prev_close: number | null;
   premarket_open_4am: number | null;
-  premarket_30m_high: number | null;
-  premarket_30m_low: number | null;
-  premarket_30m_change_pct: number | null;
-  premarket_30m_volume: number | null;
+  /** Opening window (see src/constants/premarketWindow.ts); fully elapsed at report time. */
+  premarket_window_start_et?: string;
+  premarket_window_end_et?: string;
+  premarket_window_high?: number | null;
+  premarket_window_low?: number | null;
+  premarket_window_change_pct?: number | null;
+  premarket_window_volume?: number | null;
+  /** @deprecated Legacy 04:00-04:30 fields on records created before the window redefinition. */
+  premarket_30m_high?: number | null;
+  premarket_30m_low?: number | null;
+  premarket_30m_change_pct?: number | null;
+  premarket_30m_volume?: number | null;
   pre_market_or_latest_price: number | null;
   pre_market_change_pct: number | null;
   intraday_high: number | null;
@@ -179,6 +187,8 @@ export interface ForecastRecord {
   sources: GroundingSource[];
   audit: MathAuditReport;
   verification?: RealizedVerification;
+  /** Caller-supplied key (e.g. Cloud Scheduler schedule time) used to dedupe task triggers. */
+  idempotency_key?: string;
 }
 
 export interface ScheduleConfig {
@@ -188,6 +198,16 @@ export interface ScheduleConfig {
   symbols: string[];
   calibration_mode: CalibrationMode;
   run_window: RunWindow;
+  /** ET date of the last scheduled/external attempt (success or failure). */
   last_scheduled_run_date_et: string | null;
   last_run_status: string | null;
+  /** Retries stop at this ET time; a missed-deadline alert fires once it passes. */
+  retry_cutoff_et: string;
+  /** ET date on which every symbol had a validated record. */
+  last_successful_run_date_et: string | null;
+  attempts_date_et: string | null;
+  attempts_today: number;
+  last_attempt_at: string | null;
+  missed_alert_date_et: string | null;
+  config_version: number;
 }
