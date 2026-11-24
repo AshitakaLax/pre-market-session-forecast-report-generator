@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Python Chronos-2 service
+.venv/
+__pycache__/
+*.py[cod]
+chronos_service/walk_forward_results/

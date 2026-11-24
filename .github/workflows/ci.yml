@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: TypeScript lint and frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run lint
+      - run: npm run build
+
+  chronos-python:
+    name: Python syntax and scenario tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: chronos_service/requirements.txt
+      - name: Install CPU PyTorch and Chronos service dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+          python -m pip install -r chronos_service/requirements.txt
+      - name: Verify Chronos runtime imports
+        working-directory: chronos_service
+        run: python -c "from chronos import Chronos2Pipeline; from app import app; print('Chronos-2 service imports successfully')"
+      - name: Compile and test scenario construction
+        working-directory: chronos_service
+        run: |
+          python -m py_compile app.py scenarios.py walk_forward.py test_scenarios.py
+          python -m unittest discover -s . -p "test_*.py"

@@ -1,8 +1,11 @@
 {
   "name": "Meridian Quant",
-  "description": "Pre-market quantitative market-regime and probabilistic forecasting workbench with live multi-source grounding, deterministic math audit, and automated scheduling.",
+  "description": "Daily and multi-horizon probabilistic market forecasting powered by Amazon Chronos-2, historical market covariates, scenario simulation, and deterministic probability audits.",
   "requestFramePermissions": [],
   "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+    "AMAZON_CHRONOS_2_TIME_SERIES_FORECASTING",
+    "HISTORICAL_MARKET_DATA_COVARIATES",
+    "CORRELATED_MONTE_CARLO_SCENARIOS",
+    "WALK_FORWARD_VALIDATION_REQUIRED"
   ]
 }

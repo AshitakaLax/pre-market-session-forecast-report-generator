@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 import { ForecastView } from './components/ForecastView';
-import { PromptOptimizerView } from './components/PromptOptimizerView';
+import { ModelSetupView } from './components/ModelSetupView';
 import { RawJsonView } from './components/RawJsonView';
 import { ScheduleHistoryView } from './components/ScheduleHistoryView';
 import type {
@@ -11,7 +11,7 @@ import type {
   ScheduleConfig,
 } from './types/forecast';
 
-type NavTab = 'forecast' | 'optimizer' | 'schedule' | 'json';
+type NavTab = 'forecast' | 'model' | 'schedule' | 'json';
 
 interface EasternClock {
   dateEt: string;
@@ -207,7 +207,7 @@ export default function App() {
 
   const navItems: Array<{ key: NavTab; label: string }> = [
     { key: 'forecast', label: 'Forecast' },
-    { key: 'optimizer', label: 'Prompt Optimizer' },
+    { key: 'model', label: 'Model & Data' },
     { key: 'schedule', label: 'Schedule & History' },
     { key: 'json', label: 'Raw JSON' },
   ];
@@ -279,21 +279,11 @@ export default function App() {
             progressMessage={progressMessage}
             errorMessage={errorMessage}
             onRunForecast={handleRunForecast}
-            onOpenOptimizer={() => setActiveTab('optimizer')}
+            onOpenOptimizer={() => setActiveTab('model')}
           />
         )}
 
-        {activeTab === 'optimizer' && (
-          <PromptOptimizerView
-            symbol={symbol}
-            onSymbolChange={setSymbol}
-            calibrationMode={calibrationMode}
-            onCalibrationModeChange={setCalibrationMode}
-            runWindow={runWindow}
-            onRunWindowChange={setRunWindow}
-            onRunForecast={handleRunForecast}
-          />
-        )}
+        {activeTab === 'model' && <ModelSetupView />}
 
         {activeTab === 'schedule' && (
           <ScheduleHistoryView

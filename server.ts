@@ -130,13 +130,43 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '2mb' }));
 
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health', async (_req, res) => {
     const clock = getEasternClock();
+    const chronosServiceUrl = (
+      process.env.CHRONOS_SERVICE_URL ?? 'http://127.0.0.1:8001'
+    ).replace(/\/+$/, '');
+    let chronos: Record<string, unknown> = {
+      reachable: false,
+      model_loaded: false,
+      url: chronosServiceUrl,
+    };
+
+    try {
+      const headers: Record<string, string> = {};
+      if (process.env.CHRONOS_API_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.CHRONOS_API_TOKEN}`;
+      }
+      const response = await fetch(`${chronosServiceUrl}/health`, {
+        headers,
+        signal: AbortSignal.timeout(2500),
+      });
+      if (response.ok) {
+        chronos = {
+          ...(await response.json() as Record<string, unknown>),
+          reachable: true,
+          url: chronosServiceUrl,
+        };
+      } else {
+        chronos.error = `Chronos service returned HTTP ${response.status}`;
+      }
+    } catch (error) {
+      chronos.error = error instanceof Error ? error.message : String(error);
+    }
+
     res.json({
-      status: 'ok',
-      has_gemini_key: Boolean(process.env.GEMINI_API_KEY),
-      google_search_grounding_enabled:
-        process.env.GEMINI_ENABLE_GOOGLE_SEARCH?.trim().toLowerCase() === 'true',
+      status: chronos.model_loaded === true ? 'ok' : 'degraded',
+      forecasting_engine: 'amazon/chronos-2',
+      chronos,
       eastern_clock: clock,
     });
   });
