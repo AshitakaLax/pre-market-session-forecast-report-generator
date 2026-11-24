@@ -73,6 +73,17 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
 
   const payload = activeRecord?.payload;
   const snapshot = activeRecord?.snapshot;
+  // Records created before the window redefinition carry legacy 04:00-04:30 `premarket_30m_*` fields.
+  const isLegacyWindow = snapshot !== undefined && snapshot.premarket_window_end_et === undefined;
+  const windowLabel = isLegacyWindow
+    ? '04:00–04:30'
+    : `${snapshot?.premarket_window_start_et ?? '04:00'}–${snapshot?.premarket_window_end_et ?? '04:05'}`;
+  const windowChange =
+    (isLegacyWindow ? snapshot?.premarket_30m_change_pct : snapshot?.premarket_window_change_pct) ?? null;
+  const windowLow = (isLegacyWindow ? snapshot?.premarket_30m_low : snapshot?.premarket_window_low) ?? null;
+  const windowHigh = (isLegacyWindow ? snapshot?.premarket_30m_high : snapshot?.premarket_window_high) ?? null;
+  const windowVolume =
+    (isLegacyWindow ? snapshot?.premarket_30m_volume : snapshot?.premarket_window_volume) ?? null;
   const horizonData = payload?.horizons?.[selectedHorizon];
 
   return (
@@ -126,7 +137,7 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Pre-Market (04:30 ET)
+              Pre-Market (04:05 ET)
             </button>
             <button
               type="button"
@@ -602,26 +613,26 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                   <table className="w-full text-xs">
                     <tbody className="divide-y divide-slate-200">
                       <tr className="h-9">
-                        <td className="px-3 text-slate-600">04:00–04:30 ET Open / 30m</td>
+                        <td className="px-3 text-slate-600">{windowLabel} ET Open / Window</td>
                         <td className="px-3 text-right font-mono tabular-nums text-slate-900">
                           {snapshot.premarket_open_4am
                             ? `$${snapshot.premarket_open_4am.toFixed(2)}`
                             : 'N/A'}{' '}
                           /{' '}
-                          {snapshot.premarket_30m_change_pct !== null
-                            ? `${snapshot.premarket_30m_change_pct >= 0 ? '+' : ''}${snapshot.premarket_30m_change_pct.toFixed(2)}%`
+                          {windowChange !== null
+                            ? `${windowChange >= 0 ? '+' : ''}${windowChange.toFixed(2)}%`
                             : 'N/A'}
                         </td>
                       </tr>
                       <tr className="h-9">
-                        <td className="px-3 text-slate-600">04:00–04:30 ET Range / Vol</td>
+                        <td className="px-3 text-slate-600">{windowLabel} ET Range / Vol</td>
                         <td className="px-3 text-right font-mono tabular-nums text-slate-900">
-                          {snapshot.premarket_30m_low && snapshot.premarket_30m_high
-                            ? `$${snapshot.premarket_30m_low.toFixed(2)}–$${snapshot.premarket_30m_high.toFixed(2)}`
+                          {windowLow && windowHigh
+                            ? `$${windowLow.toFixed(2)}–$${windowHigh.toFixed(2)}`
                             : 'N/A'}{' '}
                           /{' '}
-                          {snapshot.premarket_30m_volume !== null
-                            ? snapshot.premarket_30m_volume.toLocaleString()
+                          {windowVolume !== null
+                            ? windowVolume.toLocaleString()
                             : 'N/A'}
                         </td>
                       </tr>

@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 QUANTILE_LEVELS = np.asarray([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], dtype=np.float64)
+SIMPLE_RETURN_FLOOR_PCT = -100.0
 
 
 def _standardized_residuals(history_returns_pct: np.ndarray) -> np.ndarray:
@@ -117,6 +118,14 @@ def distribution_for_horizon(
 ) -> dict[str, Any]:
     """Build the fixed-bin distribution consumed by the existing TypeScript math audit."""
     outcomes = np.asarray(outcomes_pct, dtype=np.float64)
+    # Cumulative simple returns cannot fall below -100% (total loss). Paths from
+    # simulate_cumulative_returns compound log returns with expm1, so this only
+    # trips if a caller passes outcomes that were not built that way.
+    if outcomes.size and float(np.min(outcomes)) < SIMPLE_RETURN_FLOOR_PCT:
+        raise ValueError(
+            f"Cumulative simple returns must be >= {SIMPLE_RETURN_FLOOR_PCT}%; "
+            f"got {float(np.min(outcomes))}."
+        )
     bins = horizon_spec["bins"]
     if len(bins) != 10:
         raise ValueError("Each forecast horizon must define exactly 10 probability bins.")

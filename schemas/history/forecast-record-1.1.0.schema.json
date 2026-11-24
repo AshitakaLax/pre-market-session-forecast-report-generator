@@ -32,7 +32,13 @@
           "items": { "$ref": "#/$defs/GroundingSource" }
         },
         "audit": { "$ref": "#/$defs/MathAuditReport" },
-        "verification": { "$ref": "#/$defs/RealizedVerification" }
+        "verification": { "$ref": "#/$defs/RealizedVerification" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Caller-supplied key (e.g. Cloud Scheduler schedule time) used to dedupe task triggers."
+        }
       }
     },
 
@@ -205,12 +211,18 @@
       }
     },
 
+    "SimpleReturnPct": {
+      "type": "number",
+      "minimum": -100,
+      "description": "Cumulative simple return in percent. A long position cannot lose more than 100%, so values below -100 are impossible."
+    },
+
     "BinItem": {
       "type": "object",
       "additionalProperties": false,
       "required": ["min_pct", "max_pct", "prob", "cdf"],
       "properties": {
-        "min_pct": { "type": "number" },
+        "min_pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "max_pct": { "type": "number" },
         "prob": { "$ref": "#/$defs/UnitInterval" },
         "cdf": {
@@ -232,22 +244,22 @@
         "quantiles_pct"
       ],
       "properties": {
-        "mean_pct": { "type": "number" },
-        "median_pct": { "type": "number" },
+        "mean_pct": { "$ref": "#/$defs/SimpleReturnPct" },
+        "median_pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "std_pct": { "type": "number", "minimum": 0 },
         "prob_positive": { "$ref": "#/$defs/UnitInterval" },
-        "expected_shortfall_5pct": { "type": "number" },
+        "expected_shortfall_5pct": { "$ref": "#/$defs/SimpleReturnPct" },
         "quantiles_pct": {
           "type": "object",
           "additionalProperties": false,
           "required": ["p01", "p05", "p25", "p75", "p95", "p99"],
           "properties": {
-            "p01": { "type": "number" },
-            "p05": { "type": "number" },
-            "p25": { "type": "number" },
-            "p75": { "type": "number" },
-            "p95": { "type": "number" },
-            "p99": { "type": "number" }
+            "p01": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p05": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p25": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p75": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p95": { "$ref": "#/$defs/SimpleReturnPct" },
+            "p99": { "$ref": "#/$defs/SimpleReturnPct" }
           }
         }
       }
@@ -264,10 +276,6 @@
         "market_session_phase",
         "prev_close",
         "premarket_open_4am",
-        "premarket_30m_high",
-        "premarket_30m_low",
-        "premarket_30m_change_pct",
-        "premarket_30m_volume",
         "pre_market_or_latest_price",
         "pre_market_change_pct",
         "intraday_high",
@@ -309,10 +317,26 @@
         "market_session_phase": { "enum": ["closed", "pre_market", "regular_open", "after_hours"] },
         "prev_close": { "$ref": "#/$defs/NullablePositiveNumber" },
         "premarket_open_4am": { "$ref": "#/$defs/NullablePositiveNumber" },
-        "premarket_30m_high": { "$ref": "#/$defs/NullablePositiveNumber" },
-        "premarket_30m_low": { "$ref": "#/$defs/NullablePositiveNumber" },
-        "premarket_30m_change_pct": { "$ref": "#/$defs/NullableNumber" },
-        "premarket_30m_volume": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "premarket_window_start_et": {
+          "$ref": "#/$defs/ClockTimeEt",
+          "description": "Start (inclusive) of the opening pre-market window summarised by premarket_window_* (src/constants/premarketWindow.ts)."
+        },
+        "premarket_window_end_et": {
+          "$ref": "#/$defs/ClockTimeEt",
+          "description": "End (exclusive) of the opening pre-market window; fully elapsed at report time."
+        },
+        "premarket_window_high": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_window_low": { "$ref": "#/$defs/NullablePositiveNumber" },
+        "premarket_window_change_pct": { "$ref": "#/$defs/NullableNumber" },
+        "premarket_window_volume": { "$ref": "#/$defs/NullableNonNegativeNumber" },
+        "premarket_30m_high": {
+          "$ref": "#/$defs/NullablePositiveNumber",
+          "deprecated": true,
+          "description": "Legacy 04:00-04:30 field, present only on records created before the window redefinition."
+        },
+        "premarket_30m_low": { "$ref": "#/$defs/NullablePositiveNumber", "deprecated": true },
+        "premarket_30m_change_pct": { "$ref": "#/$defs/NullableNumber", "deprecated": true },
+        "premarket_30m_volume": { "$ref": "#/$defs/NullableNonNegativeNumber", "deprecated": true },
         "pre_market_or_latest_price": { "$ref": "#/$defs/NullablePositiveNumber" },
         "pre_market_change_pct": { "$ref": "#/$defs/NullableNumber" },
         "intraday_high": { "$ref": "#/$defs/NullablePositiveNumber" },
@@ -456,6 +480,11 @@
       "type": "string",
       "pattern": "^[A-Z0-9^][A-Z0-9.\\-=^]{0,15}$",
       "description": "Upper-case market symbol as used by the data adapter, e.g. TQQQ, NQ=F, ^VXN, DX-Y.NYB."
+    },
+    "ClockTimeEt": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "description": "24-hour HH:MM wall-clock time in America/New_York."
     },
     "DateTime": {
       "type": "string",

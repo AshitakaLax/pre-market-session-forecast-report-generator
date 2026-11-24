@@ -66,6 +66,42 @@ class ChronosScenarioTests(unittest.TestCase):
         self.assertEqual(len(result["bins"]), 10)
         self.assertTrue(all(result["bins"][i]["cdf"] <= result["bins"][i + 1]["cdf"] for i in range(9)))
 
+    def test_extreme_bearish_252_day_3x_paths_stay_above_total_loss(self):
+        rng = np.random.default_rng(3)
+        # 3x leveraged daily log returns (in %) with a strong negative drift and fat tails.
+        history = rng.standard_t(df=3, size=1200) * 6.0 - 1.0
+        forecast = np.tile(np.linspace(-14.0, 4.0, len(QUANTILE_LEVELS)), (252, 1))
+        paths = simulate_cumulative_returns(forecast, history, n_paths=2000, seed=9)
+        self.assertTrue(np.all(paths > -100.0))
+        bins = [{"min_pct": -75 + 15 * i, "max_pct": -60 + 15 * i} for i in range(10)]
+        spec = {
+            "key": "next_year",
+            "label": "Next Year (252D)",
+            "trading_days": 252,
+            "bin_width_pct": 15,
+            "bins": bins,
+        }
+        summary = build_horizon_distributions(paths, [spec])["next_year"]["summary"]
+        values = [
+            summary["mean_pct"],
+            summary["median_pct"],
+            summary["expected_shortfall_5pct"],
+            *summary["quantiles_pct"].values(),
+        ]
+        self.assertTrue(all(v >= -100.0 for v in values), values)
+        self.assertLess(summary["quantiles_pct"]["p01"], -99.0)
+
+    def test_distribution_rejects_returns_below_total_loss(self):
+        spec = {
+            "key": "tomorrow",
+            "label": "Tomorrow",
+            "trading_days": 1,
+            "bin_width_pct": 1,
+            "bins": [{"min_pct": -5 + i, "max_pct": -4 + i} for i in range(10)],
+        }
+        with self.assertRaises(ValueError):
+            build_horizon_distributions(np.array([[-100.5], [0.0]]), [spec])
+
 
 if __name__ == "__main__":
     unittest.main()

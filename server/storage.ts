@@ -7,15 +7,25 @@ const DATA_DIR = path.resolve(process.cwd(), 'data');
 const FORECASTS_FILE = path.join(DATA_DIR, 'forecasts.json');
 const SCHEDULE_FILE = path.join(DATA_DIR, 'schedule.json');
 
+/** v2: start moved from 04:30 (the deadline) to 04:05 with retries until the cutoff. */
+const CONFIG_VERSION = 2;
+
 const DEFAULT_SCHEDULE: ScheduleConfig = {
   enabled: false,
-  time_et: '04:30',
+  time_et: '04:05',
   trading_days_only: true,
   symbols: ['TQQQ'],
   calibration_mode: 'leveraged_scaled',
   run_window: 'pre_market',
   last_scheduled_run_date_et: null,
   last_run_status: null,
+  retry_cutoff_et: '04:25',
+  last_successful_run_date_et: null,
+  attempts_date_et: null,
+  attempts_today: 0,
+  last_attempt_at: null,
+  missed_alert_date_et: null,
+  config_version: CONFIG_VERSION,
 };
 
 function ensureDataDir(): void {
@@ -77,7 +87,13 @@ export function readScheduleConfig(): ScheduleConfig {
   try {
     const raw = fs.readFileSync(SCHEDULE_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_SCHEDULE, ...parsed };
+    const merged: ScheduleConfig = { ...DEFAULT_SCHEDULE, ...parsed };
+    // Migrate the old default (04:30 = the deadline itself) so existing installs get the fix.
+    if ((parsed.config_version ?? 1) < CONFIG_VERSION && parsed.time_et === '04:30') {
+      merged.time_et = DEFAULT_SCHEDULE.time_et;
+    }
+    merged.config_version = CONFIG_VERSION;
+    return merged;
   } catch {
     return { ...DEFAULT_SCHEDULE };
   }

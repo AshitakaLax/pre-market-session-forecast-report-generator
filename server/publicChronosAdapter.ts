@@ -1,3 +1,7 @@
+import {
+  PREMARKET_WINDOW_END_ET,
+  PREMARKET_WINDOW_START_ET,
+} from '../src/constants/premarketWindow.ts';
 import crypto from 'crypto';
 import type {
   CalibrationMode,
@@ -227,10 +231,10 @@ async function fetchPremarketTape(
   prevClose: number
 ): Promise<{
   premarket_open_4am: number | null;
-  premarket_30m_high: number | null;
-  premarket_30m_low: number | null;
-  premarket_30m_change_pct: number | null;
-  premarket_30m_volume: number | null;
+  premarket_window_high: number | null;
+  premarket_window_low: number | null;
+  premarket_window_change_pct: number | null;
+  premarket_window_volume: number | null;
   pre_market_or_latest_price: number | null;
   pre_market_change_pct: number | null;
   missing: string[];
@@ -238,10 +242,10 @@ async function fetchPremarketTape(
 }> {
   const empty = {
     premarket_open_4am: null,
-    premarket_30m_high: null,
-    premarket_30m_low: null,
-    premarket_30m_change_pct: null,
-    premarket_30m_volume: null,
+    premarket_window_high: null,
+    premarket_window_low: null,
+    premarket_window_change_pct: null,
+    premarket_window_volume: null,
     pre_market_or_latest_price: null,
     pre_market_change_pct: null,
     missing: [] as string[],
@@ -309,7 +313,12 @@ async function fetchPremarketTape(
     }
 
     const pre = minuteBars.filter((b) => b.hhmmEt >= '04:00' && b.hhmmEt <= '09:29');
-    const opening = minuteBars.filter((b) => b.hhmmEt >= '04:00' && b.hhmmEt <= '04:29');
+    const windowElapsed = et.timeEt >= PREMARKET_WINDOW_END_ET;
+    const opening = windowElapsed
+      ? minuteBars.filter(
+          (b) => b.hhmmEt >= PREMARKET_WINDOW_START_ET && b.hhmmEt < PREMARKET_WINDOW_END_ET
+        )
+      : [];
 
     if (pre.length === 0) {
       empty.missing.push('Premarket minute tape is unavailable from Yahoo Finance.');
@@ -326,23 +335,23 @@ async function fetchPremarketTape(
 
     if (opening.length > 0) {
       const open4am = opening[0].open;
-      const last30m = opening[opening.length - 1].close;
-      const high30m = Math.max(...opening.map((b) => b.high));
-      const low30m = Math.min(...opening.map((b) => b.low));
-      const vol30m = opening.reduce((acc, b) => acc + (b.volume || 0), 0);
+      const lastWindow = opening[opening.length - 1].close;
+      const highWindow = Math.max(...opening.map((b) => b.high));
+      const lowWindow = Math.min(...opening.map((b) => b.low));
+      const volWindow = opening.reduce((acc, b) => acc + (b.volume || 0), 0);
       return {
         premarket_open_4am: open4am,
-        premarket_30m_high: high30m,
-        premarket_30m_low: low30m,
-        premarket_30m_change_pct: open4am > 0 ? (last30m / open4am - 1) * 100 : null,
-        premarket_30m_volume: vol30m,
+        premarket_window_high: highWindow,
+        premarket_window_low: lowWindow,
+        premarket_window_change_pct: open4am > 0 ? (lastWindow / open4am - 1) * 100 : null,
+        premarket_window_volume: volWindow,
         pre_market_or_latest_price: latest,
         pre_market_change_pct: changePct,
         missing: [],
         observations: [
           ...latestObservations,
           intradayObservation('premarket_open_4am', symbol, opening[0]),
-          intradayObservation('premarket_30m_change_pct', symbol, opening[opening.length - 1], opening[0]),
+          intradayObservation('premarket_window_change_pct', symbol, opening[opening.length - 1], opening[0]),
         ],
       };
     }
@@ -352,6 +361,11 @@ async function fetchPremarketTape(
       pre_market_or_latest_price: latest,
       pre_market_change_pct: changePct,
       observations: latestObservations,
+      missing: [
+        windowElapsed
+          ? `No minute bars in the ${PREMARKET_WINDOW_START_ET}-${PREMARKET_WINDOW_END_ET} ET opening window.`
+          : `Opening window ${PREMARKET_WINDOW_START_ET}-${PREMARKET_WINDOW_END_ET} ET has not completed yet.`,
+      ],
     };
   } catch {
     empty.missing.push('Premarket minute tape is unavailable from Yahoo Finance.');
@@ -1028,11 +1042,13 @@ export async function runPublicChronosPipeline(params: {
     as_of_utc: nowUtc,
     market_session_phase: getSessionPhase(etNow),
     prev_close: basePrice,
+    premarket_window_start_et: PREMARKET_WINDOW_START_ET,
+    premarket_window_end_et: PREMARKET_WINDOW_END_ET,
     premarket_open_4am: premarket.premarket_open_4am,
-    premarket_30m_high: premarket.premarket_30m_high,
-    premarket_30m_low: premarket.premarket_30m_low,
-    premarket_30m_change_pct: premarket.premarket_30m_change_pct,
-    premarket_30m_volume: premarket.premarket_30m_volume,
+    premarket_window_high: premarket.premarket_window_high,
+    premarket_window_low: premarket.premarket_window_low,
+    premarket_window_change_pct: premarket.premarket_window_change_pct,
+    premarket_window_volume: premarket.premarket_window_volume,
     pre_market_or_latest_price: premarket.pre_market_or_latest_price,
     pre_market_change_pct: premarket.pre_market_change_pct,
     intraday_high: lastBar.high,

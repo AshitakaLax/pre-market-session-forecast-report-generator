@@ -43,7 +43,31 @@ describe('forecast record JSON Schema', () => {
     delete record.verification;
     delete record.snapshot.base_session_date;
     delete record.snapshot.futures_daily_change_pct;
+    delete record.idempotency_key;
+    for (const key of Object.keys(record.snapshot)) {
+      if (key.startsWith('premarket_window_')) delete record.snapshot[key];
+    }
     assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('accepts legacy records that carry the deprecated premarket_30m_* fields', () => {
+    const record = sample() as unknown as { snapshot: Record<string, unknown> };
+    for (const key of Object.keys(record.snapshot)) {
+      if (key.startsWith('premarket_window_')) delete record.snapshot[key];
+    }
+    Object.assign(record.snapshot, {
+      premarket_30m_high: 49.6,
+      premarket_30m_low: 49.05,
+      premarket_30m_change_pct: 0.45,
+      premarket_30m_volume: 182_400,
+    });
+    assert.deepEqual(validateForecastRecord(record).issues, []);
+  });
+
+  it('rejects a pre-market window bound that is not an HH:MM time', () => {
+    const record = sample();
+    record.snapshot.premarket_window_end_et = '4:05am';
+    assert.deepEqual(issuePaths(record), ['schema:/snapshot/premarket_window_end_et']);
   });
 
   it('rejects unexpected properties so new fields cannot drift past the schema', () => {
@@ -89,6 +113,35 @@ describe('forecast record JSON Schema', () => {
     const paths = issuePaths(record);
     assert.ok(paths.includes('schema:/snapshot/vix_level'));
     assert.ok(paths.includes('schema:/payload/horizons/tomorrow/summary/std_pct'));
+  });
+
+  it('rejects simple returns below the -100% floor', () => {
+    const record = sample();
+    const summary = record.payload.horizons.next_year.summary;
+    summary.quantiles_pct.p01 = -115.75;
+    summary.expected_shortfall_5pct = -107.98;
+    summary.mean_pct = -100.01;
+    summary.median_pct = -101;
+    record.payload.horizons.next_year.bins[0].min_pct = -100.5;
+    const paths = issuePaths(record);
+    for (const field of [
+      'summary/quantiles_pct/p01',
+      'summary/expected_shortfall_5pct',
+      'summary/mean_pct',
+      'summary/median_pct',
+      'bins/0/min_pct',
+    ]) {
+      assert.ok(paths.includes(`schema:/payload/horizons/next_year/${field}`), field);
+    }
+  });
+
+  it('accepts a simple return of exactly -100% (total loss)', () => {
+    const record = sample();
+    const q = record.payload.horizons.next_year.summary.quantiles_pct;
+    q.p01 = -100;
+    record.payload.horizons.next_year.summary.expected_shortfall_5pct = -100;
+    assert.ok(q.p05 >= -100);
+    assert.deepEqual(issuePaths(record), []);
   });
 
   it('rejects timestamps without a time zone', () => {
@@ -191,6 +244,19 @@ describe('forecast record semantic rules', () => {
     const q = record.payload.horizons.tomorrow.summary.quantiles_pct;
     [q.p05, q.p95] = [q.p95, q.p05];
     assert.ok(issuePaths(record).includes('semantic:/payload/horizons/tomorrow/summary'));
+  });
+
+  it('rejects underflow mass when the lowest bin already starts at -100%', () => {
+    const record = sample();
+    const horizon = record.payload.horizons.next_year;
+    assert.ok(horizon.underflow_prob > 0);
+    horizon.bin_width_pct = 20;
+    horizon.bins.forEach((bin, idx) => {
+      bin.min_pct = -100 + idx * 20;
+      bin.max_pct = bin.min_pct + 20;
+    });
+    const paths = issuePaths(record);
+    assert.deepEqual(paths, ['semantic:/payload/horizons/next_year/underflow_prob']);
   });
 
   it('rejects strategy weights that do not sum to 1', () => {
