@@ -11,8 +11,10 @@ import {
   deleteForecastById,
   getForecastById,
   readForecasts,
+  readForecastsForDisplay,
   readScheduleConfig,
   saveForecast,
+  StorageCorruptionError,
   writeScheduleConfig,
 } from './server/storage.ts';
 import { FORECAST_RECORD_SCHEMA, validateForecastRecord } from './server/forecastValidation.ts';
@@ -183,7 +185,7 @@ async function startServer() {
   });
 
   app.get('/api/forecasts', (_req, res) => {
-    res.json({ forecasts: readForecasts() });
+    res.json(readForecastsForDisplay());
   });
 
   // JSON Schema (draft 2020-12) that every persisted forecast record satisfies.
@@ -274,17 +276,21 @@ async function startServer() {
   });
 
   app.post('/api/forecasts/:id/verify', async (req, res) => {
-    const record = getForecastById(req.params.id);
-    if (!record) {
-      res.status(404).json({ error: 'Forecast record not found.' });
-      return;
-    }
     try {
+      const record = getForecastById(req.params.id);
+      if (!record) {
+        res.status(404).json({ error: 'Forecast record not found.' });
+        return;
+      }
       const verification = await verifyRealizedOutcome(record);
       const updated = { ...record, verification };
       saveForecast(updated);
       res.json({ forecast: updated });
     } catch (err) {
+      if (err instanceof StorageCorruptionError) {
+        res.status(503).json({ error: err.message });
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Verification failed.';
       res.status(422).json({ error: message });
     }
@@ -306,7 +312,13 @@ async function startServer() {
     if (!authorizeTask(req, res)) return;
 
     const clock = await getClock();
-    const config = readScheduleConfig();
+    let config: ScheduleConfig;
+    try {
+      config = readScheduleConfig();
+    } catch (err) {
+      res.status(503).json({ error: err instanceof Error ? err.message : 'Schedule unreadable.' });
+      return;
+    }
     const force = req.body?.force === true || req.query.force === '1';
 
     const skipReason = taskTriggerSkipReason({
@@ -364,6 +376,10 @@ async function startServer() {
       res.status(failed.length === 0 ? 200 : 500).json(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Scheduled task failed.';
+      if (err instanceof StorageCorruptionError) {
+        res.status(503).json({ error: message });
+        return;
+      }
       res.status(500).json({ error: message });
     }
   });
@@ -447,6 +463,16 @@ async function startServer() {
       schedule: updated,
       eastern_clock: await getClock(),
     });
+  });
+
+  // Corrupt data files surface as 503 with a clear message; nothing is overwritten.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof StorageCorruptionError) {
+      console.error(`[storage] ${err.message}`);
+      res.status(503).json({ error: err.message });
+      return;
+    }
+    next(err);
   });
 
   // Start background pre-market scheduler check every 30s

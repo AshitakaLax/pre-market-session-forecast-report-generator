@@ -4,12 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-// storage.ts resolves ./data from cwd at import time, so import it from a temp dir.
+// storage.ts reads FORECAST_DATA_DIR on every call, so point it at a temp dir.
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sched-test-'));
-const originalCwd = process.cwd();
-process.chdir(tmp);
+process.env.FORECAST_DATA_DIR = path.join(tmp, 'data');
 const storage = await import('../server/storage.ts');
-process.chdir(originalCwd);
 
 describe('schedule config defaults and migration', () => {
   it('defaults to a 04:05 start with a 04:25 retry cutoff', () => {
