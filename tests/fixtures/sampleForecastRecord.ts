@@ -12,6 +12,7 @@ import type {
   MarketSnapshot,
 } from '../../src/types/forecast.ts';
 import { FORECAST_SCHEMA_VERSION } from '../../src/types/forecast.ts';
+import { PREMARKET_WINDOW_END_ET, PREMARKET_WINDOW_START_ET } from '../../src/constants/premarketWindow.ts';
 
 /**
  * A fully populated forecast record built through the real audit code path.
@@ -120,8 +121,8 @@ export function buildSampleForecastRecord(): ForecastRecord {
     market_session_phase: 'pre_market',
     prev_close: 49.1,
     premarket_open_4am: 49.32,
-    premarket_window_start_et: '04:00',
-    premarket_window_end_et: '04:05',
+    premarket_window_start_et: PREMARKET_WINDOW_START_ET,
+    premarket_window_end_et: PREMARKET_WINDOW_END_ET,
     premarket_window_high: 49.6,
     premarket_window_low: 49.05,
     premarket_window_change_pct: 0.45,
