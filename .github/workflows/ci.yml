@@ -47,5 +47,5 @@ jobs:
       - name: Compile and test scenario construction
         working-directory: chronos_service
         run: |
-          python -m py_compile app.py scenarios.py walk_forward.py test_scenarios.py test_forecast_schema.py
+          python -m py_compile app.py market_inputs.py scenarios.py walk_forward.py test_scenarios.py test_market_inputs.py test_forecast_schema.py
           python -m unittest discover -s . -p "test_*.py"

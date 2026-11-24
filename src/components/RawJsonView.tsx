@@ -15,7 +15,7 @@ export const RawJsonView: React.FC<RawJsonViewProps> = ({ activeRecord, onRunFor
       <div className="bg-white border border-slate-200 rounded-lg p-10 text-center space-y-4">
         <h2 className="text-lg font-semibold text-slate-900">No Audited JSON Payload Loaded</h2>
         <p className="text-sm text-slate-600 max-w-md mx-auto">
-          Run a live forecast to inspect the strictly audited Schema v1.1.0 JSON payload and Step 5 mathematical verification ledger.
+          Run a live forecast to inspect the strictly audited, schema-validated JSON payload and Step 5 mathematical verification ledger.
         </p>
         <button
           type="button"

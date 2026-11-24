@@ -10,7 +10,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { FORECAST_RECORD_SCHEMA_ID, validateForecastRecord } from '../server/forecastValidation.ts';
+import { SUPPORTED_FORECAST_SCHEMA_VERSIONS, validateForecastRecord } from '../server/forecastValidation.ts';
 
 const files = process.argv.slice(2);
 if (files.length === 0) files.push(path.join('data', 'forecasts.json'));
@@ -41,16 +41,18 @@ for (const file of files) {
       typeof record === 'object' && record !== null && 'id' in record ? String(record.id) : 'unknown id';
     const outcome = validateForecastRecord(record);
     if (outcome.valid) {
-      console.log(`✓ ${label} (${id})`);
+      console.log(`✓ ${label} (${id}) against ${outcome.schema_id}`);
       return;
     }
     failed++;
-    console.error(`✗ ${label} (${id})`);
+    console.error(`✗ ${label} (${id}) against ${outcome.schema_id}`);
     for (const issue of outcome.issues) {
       console.error(`    [${issue.kind}] ${issue.path || '/'} ${issue.message}`);
     }
   });
 }
 
-console.log(`\n${checked} record(s) checked against ${FORECAST_RECORD_SCHEMA_ID}; ${failed} invalid.`);
+console.log(
+  `\n${checked} record(s) checked (schema versions ${SUPPORTED_FORECAST_SCHEMA_VERSIONS.join(', ')}); ${failed} invalid.`
+);
 process.exit(failed > 0 ? 1 : 0);

@@ -313,7 +313,11 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                 )}
               </div>
               <div className="text-xs text-slate-500 font-mono tabular-nums">
-                {snapshot.overnight_futures_symbol} daily:{' '}
+                {snapshot.overnight_futures_symbol} overnight:{' '}
+                {snapshot.overnight_futures_change_pct != null
+                  ? `${snapshot.overnight_futures_change_pct >= 0 ? '+' : ''}${snapshot.overnight_futures_change_pct.toFixed(2)}%`
+                  : 'N/A'}
+                {' · '}daily:{' '}
                 {snapshot.futures_daily_change_pct != null
                   ? `${snapshot.futures_daily_change_pct >= 0 ? '+' : ''}${snapshot.futures_daily_change_pct.toFixed(2)}%`
                   : 'N/A'}
@@ -634,6 +638,20 @@ export const ForecastView: React.FC<ForecastViewProps> = ({
                           {formatNum(snapshot.vxn_level)} / {formatNum(snapshot.vix_level)}
                         </td>
                       </tr>
+                      <tr className="h-9">
+                        <td className="px-3 text-slate-600">VIX Overnight / Prior Close</td>
+                        <td className="px-3 text-right font-mono tabular-nums text-slate-900">
+                          {formatNum(snapshot.vix_overnight_level ?? null)} / {formatNum(snapshot.vix_level)}
+                        </td>
+                      </tr>
+                      {snapshot.rvx_level != null && (
+                        <tr className="h-9">
+                          <td className="px-3 text-slate-600">Cboe RVX</td>
+                          <td className="px-3 text-right font-mono tabular-nums text-slate-900">
+                            {formatNum(snapshot.rvx_level)}
+                          </td>
+                        </tr>
+                      )}
                       <tr className="h-9">
                         <td className="px-3 text-slate-600">VIX9D / VIX3M Term</td>
                         <td className="px-3 text-right font-mono tabular-nums text-slate-900">

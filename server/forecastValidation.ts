@@ -22,11 +22,28 @@ export const FORECAST_RECORD_SCHEMA_URL = new URL(
   import.meta.url
 );
 
-export const FORECAST_RECORD_SCHEMA: Record<string, unknown> = JSON.parse(
-  fs.readFileSync(FORECAST_RECORD_SCHEMA_URL, 'utf-8')
-);
+/** Frozen schemas for earlier versions, kept so stored records stay valid. */
+const HISTORY_SCHEMA_DIR = new URL('../schemas/history/', import.meta.url);
+
+function readSchema(url: URL): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(url, 'utf-8'));
+}
+
+/** The current contract. New records must use this version. */
+export const FORECAST_RECORD_SCHEMA: Record<string, unknown> = readSchema(FORECAST_RECORD_SCHEMA_URL);
 
 export const FORECAST_RECORD_SCHEMA_ID = String(FORECAST_RECORD_SCHEMA.$id);
+
+function schemaVersionOf(schema: Record<string, unknown>): string {
+  const defs = schema.$defs as Record<string, { properties?: Record<string, { const?: unknown }> }>;
+  const version = defs?.ForecastPayload?.properties?.schema_version?.const;
+  if (typeof version !== 'string') {
+    throw new Error(`Schema ${String(schema.$id)} does not pin payload.schema_version with a const.`);
+  }
+  return version;
+}
+
+export const FORECAST_RECORD_SCHEMA_VERSION = schemaVersionOf(FORECAST_RECORD_SCHEMA);
 
 /** Tolerance for probability sums and CDF checks (values are stored at 4 decimals). */
 const PROB_TOLERANCE = 0.0005;
@@ -76,18 +93,51 @@ const ajv = new Ajv2020({
   allowUnionTypes: true,
 });
 addFormats(ajv);
-ajv.addSchema(FORECAST_RECORD_SCHEMA);
 
-function compiledDefinition(name: string): ValidateFunction {
-  const validate = ajv.getSchema(`${FORECAST_RECORD_SCHEMA_ID}#/$defs/${name}`);
-  if (!validate) {
-    throw new Error(`Schema definition ${name} is missing from ${FORECAST_RECORD_SCHEMA_ID}.`);
-  }
-  return validate;
+interface VersionValidators {
+  schemaId: string;
+  record: ValidateFunction;
+  payload: ValidateFunction;
 }
 
-const validateRecordSchema = compiledDefinition('ForecastRecord');
-const validatePayloadSchema = compiledDefinition('ForecastPayload');
+function compileVersion(schema: Record<string, unknown>): VersionValidators {
+  const schemaId = String(schema.$id);
+  ajv.addSchema(schema);
+  const definition = (name: string): ValidateFunction => {
+    const validate = ajv.getSchema(`${schemaId}#/$defs/${name}`);
+    if (!validate) throw new Error(`Schema definition ${name} is missing from ${schemaId}.`);
+    return validate;
+  };
+  return { schemaId, record: definition('ForecastRecord'), payload: definition('ForecastPayload') };
+}
+
+const LATEST = compileVersion(FORECAST_RECORD_SCHEMA);
+
+/** payload.schema_version -> validators for that version's frozen schema. */
+const VALIDATORS = new Map<string, VersionValidators>([[FORECAST_RECORD_SCHEMA_VERSION, LATEST]]);
+for (const file of fs.readdirSync(HISTORY_SCHEMA_DIR).filter((f) => f.endsWith('.schema.json')).sort()) {
+  const schema = readSchema(new URL(file, HISTORY_SCHEMA_DIR));
+  const version = schemaVersionOf(schema);
+  if (VALIDATORS.has(version)) throw new Error(`Duplicate forecast schema for version ${version} (${file}).`);
+  VALIDATORS.set(version, compileVersion(schema));
+}
+
+/** Every payload.schema_version this build can validate, newest contract first. */
+export const SUPPORTED_FORECAST_SCHEMA_VERSIONS: string[] = Array.from(VALIDATORS.keys());
+
+/**
+ * Records are validated against the schema for the version they declare, so a
+ * stored 1.1.0 record can still be re-saved (e.g. after verification). An unknown
+ * version is checked against the current schema, whose const then rejects it.
+ */
+function validatorsFor(document: unknown, versionPath: 'record' | 'payload'): VersionValidators {
+  const payload =
+    versionPath === 'record'
+      ? (document as { payload?: { schema_version?: unknown } } | null)?.payload
+      : (document as { schema_version?: unknown } | null);
+  const version = payload && typeof payload === 'object' ? payload.schema_version : undefined;
+  return (typeof version === 'string' && VALIDATORS.get(version)) || LATEST;
+}
 
 function schemaIssues(errors: ErrorObject[] | null | undefined, prefix = ''): ForecastValidationIssue[] {
   return (errors ?? []).map((error) => {
@@ -201,24 +251,26 @@ function semanticRecordIssues(record: ForecastRecord): ForecastValidationIssue[]
   return issues;
 }
 
-function result(issues: ForecastValidationIssue[]): ForecastValidationResult {
-  return { valid: issues.length === 0, schema_id: FORECAST_RECORD_SCHEMA_ID, issues };
+function result(schemaId: string, issues: ForecastValidationIssue[]): ForecastValidationResult {
+  return { valid: issues.length === 0, schema_id: schemaId, issues };
 }
 
 /** Validate a complete forecast record (structure first, then cross-field rules). */
 export function validateForecastRecord(record: unknown): ForecastValidationResult {
-  if (!validateRecordSchema(record)) {
-    return result(schemaIssues(validateRecordSchema.errors));
+  const { schemaId, record: validate } = validatorsFor(record, 'record');
+  if (!validate(record)) {
+    return result(schemaId, schemaIssues(validate.errors));
   }
-  return result(semanticRecordIssues(record as ForecastRecord));
+  return result(schemaId, semanticRecordIssues(record as ForecastRecord));
 }
 
 /** Validate a forecast payload on its own (e.g. the audited payload before it is wrapped in a record). */
 export function validateForecastPayload(payload: unknown): ForecastValidationResult {
-  if (!validatePayloadSchema(payload)) {
-    return result(schemaIssues(validatePayloadSchema.errors));
+  const { schemaId, payload: validate } = validatorsFor(payload, 'payload');
+  if (!validate(payload)) {
+    return result(schemaId, schemaIssues(validate.errors));
   }
-  return result(semanticPayloadIssues(payload as ForecastPayload, ''));
+  return result(schemaId, semanticPayloadIssues(payload as ForecastPayload, ''));
 }
 
 export function assertValidForecastRecord(record: unknown): asserts record is ForecastRecord {

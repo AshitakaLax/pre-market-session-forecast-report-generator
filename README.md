@@ -50,7 +50,7 @@ Open the Vite URL shown in the terminal. The **Model & Data** tab shows whether 
 
 Every forecast record is validated before it is saved or published. If it fails, the run errors out (the scheduler records `Failed … failed JSON Schema validation: <path> <reason>`) and nothing invalid is written to `data/forecasts.json`.
 
-- **Schema:** [`schemas/forecast-record.schema.json`](schemas/forecast-record.schema.json) (JSON Schema draft 2020-12). It describes payload `schema_version` `1.1.0` and mirrors `src/types/forecast.ts`. Objects are closed (`additionalProperties: false`), enums are explicit, probabilities are bounded to [0, 1], each horizon has exactly 10 bins with its `trading_days` fixed (1/5/21/63/252), and timestamps must be RFC 3339 with an offset.
+- **Schema:** [`schemas/forecast-record.schema.json`](schemas/forecast-record.schema.json) (JSON Schema draft 2020-12). It describes payload `schema_version` `1.2.0` and mirrors `src/types/forecast.ts`. Objects are closed (`additionalProperties: false`), enums are explicit, probabilities are bounded to [0, 1], each horizon has exactly 10 bins with its `trading_days` fixed (1/5/21/63/252), and timestamps must be RFC 3339 with an offset.
 - **Semantic rules** that JSON Schema cannot express are in [`server/forecastValidation.ts`](server/forecastValidation.ts): probability mass sums to 1, each CDF equals underflow plus cumulative bin mass, bins are contiguous, quantiles are ordered (p01 ≤ … ≤ p99), expected shortfall ≤ p05, strategy weights sum to 1, the audit covers every horizon exactly once and passed, and the snapshot and payload symbols match.
 - **Example:** [`schemas/examples/forecast-record.example.json`](schemas/examples/forecast-record.example.json), regenerated with `npm run schema:example`.
 
@@ -62,7 +62,24 @@ npm run validate:forecasts -- path/to/record.json other.json
 
 At runtime, `GET /api/schemas/forecast-record` serves the schema, and `POST /api/forecasts/validate` with a record as the body returns `{ valid, schema_id, issues[] }` (HTTP 422 when invalid). Python consumers can validate with `jsonschema` (see `chronos_service/test_forecast_schema.py`, which cross-checks the schema with a second implementation).
 
-**Changing the contract:** update the schema, `src/types/forecast.ts` and `tests/fixtures/sampleForecastRecord.ts` together. Bump `schema_version` and the schema `$id` whenever the payload shape changes, then run `npm run schema:example`.
+**Versions:** each record is validated against the schema for the `payload.schema_version` it declares. Earlier contracts are frozen under [`schemas/history/`](schemas/history/) (currently `1.1.0`), so stored records stay valid and can still be re-saved after verification. `1.2.0` added `snapshot.vix_overnight_level`, `snapshot.rvx_level` and `snapshot.input_observations`.
+
+**Changing the contract:** copy the current schema to `schemas/history/forecast-record-<old version>.schema.json` unchanged, then update the schema, `src/types/forecast.ts` (including `FORECAST_SCHEMA_VERSION`), `SCHEMA_VERSION` in `chronos_service/app.py` and `tests/fixtures/sampleForecastRecord.ts` together. Bump `schema_version` and the schema `$id`, then run `npm run schema:example`.
+
+## Pre-market inputs (snapshot only)
+
+Both forecast paths (`chronos_service/market_inputs.py` and `server/marketInputs.ts`) fill these at run time:
+
+| Field | Source | Notes |
+| --- | --- | --- |
+| `overnight_futures_change_pct` | Yahoo 1-minute NQ=F / ES=F / RTY=F (~10 min delayed) | Latest bar close vs. the 15:59 ET bar of the last completed session, whose close is the 4:00:00pm price (end of CME's settlement window). Early closes use the calendar's cash close in Python; the TypeScript path reports null instead of guessing. Null if the latest bar is over 60 minutes old. |
+| `vix_overnight_level` | Yahoo 1-minute ^VIX with pre/post (~15 min delayed) | Latest print from 03:15 ET (Cboe's overnight session) until 09:30. Listed as missing only from 03:30 to 09:30 ET on weekdays. `vix_level` remains the prior close. |
+| `vix9d_level`, `vix3m_level`, `rvx_level` | Cboe daily CSV `CLOSE` | Falls back to Yahoo ^VIX9D / ^VIX3M daily. RVX has no fallback because Yahoo no longer serves ^RVX. `rvx_level` is filled for Russell 2000 profiles (TNA). |
+| `iv_rank_pct`, `symbol_iv_pct` | Cboe daily CSV `CLOSE` of the profile's index (VIX, VXN or RVX) | IV rank = (last − min) / (max − min) × 100 over the trailing 252 closes. |
+
+Only the Cboe `CLOSE` column is read: VIX's `OPEN` is the 3:15am overnight print, and intraday `LOW` values can contain bad prints. `snapshot.input_observations` records each input's source, ticker and observation time: the bar timestamp for intraday inputs, the session date for daily closes. Inputs that could not be filled are listed in `missing_inputs`.
+
+These inputs are **not** Chronos-2 covariates. No history exists at the same ~4:20am clock time (Yahoo keeps about 7 days of 1-minute data), so training on them would introduce look-ahead bias.
 
 ## Accuracy and limitations
 
