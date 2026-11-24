@@ -12,3 +12,7 @@ coverage/
 __pycache__/
 *.py[cod]
 chronos_service/walk_forward_results/
+
+# Storage backups
+data/*.bak
+data/*.tmp
