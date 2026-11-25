@@ -18,6 +18,8 @@ from market_inputs import (
     overnight_futures_change,
     overnight_vix_window_open,
     parse_cboe_daily_csv,
+    ten_year_yield_pct,
+    ten_year_yield_series_pct,
 )
 
 
@@ -156,3 +158,30 @@ class RankAndSelectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TenYearYieldTest(unittest.TestCase):
+    """^TNX in either Yahoo convention (Yahoo now quotes the yield itself)."""
+
+    def test_current_convention_is_the_yield_itself(self) -> None:
+        self.assertEqual(ten_year_yield_pct(4.84), 4.84)
+
+    def test_old_x10_convention_is_divided(self) -> None:
+        self.assertAlmostEqual(ten_year_yield_pct(48.4), 4.84)
+
+    def test_missing_is_none(self) -> None:
+        self.assertIsNone(ten_year_yield_pct(None))
+        self.assertIsNone(ten_year_yield_pct(float("nan")))
+
+    def test_a_percent_history_is_unchanged_even_in_a_low_yield_era(self) -> None:
+        history = pd.Series([8.43, 1.492, 0.536, 4.875, 4.84])
+        pd.testing.assert_series_equal(ten_year_yield_series_pct(history), history)
+
+    def test_a_x10_history_is_divided_as_a_whole(self) -> None:
+        # 15.0 here is 1.5% (2020): divided with the rest, never read as 15%.
+        history = pd.Series([84.3, 15.0, 5.36, 48.4])
+        expected = pd.Series([8.43, 1.5, 0.536, 4.84])
+        pd.testing.assert_series_equal(ten_year_yield_series_pct(history), expected)
+
+    def test_empty_history_is_returned_as_is(self) -> None:
+        self.assertTrue(ten_year_yield_series_pct(pd.Series([], dtype=float)).empty)
