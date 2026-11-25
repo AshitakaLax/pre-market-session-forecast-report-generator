@@ -33,6 +33,8 @@ from market_inputs import (
     minute_closes,
     overnight_futures_change,
     overnight_vix_window_open,
+    ten_year_yield_pct,
+    ten_year_yield_series_pct,
 )
 from scenarios import (
     QUANTILE_LEVELS,
@@ -369,7 +371,7 @@ def _build_training_frame(
         series = _close_series(histories, ticker)
         if series is not None:
             if ticker == "^TNX":
-                candidate_features[feature] = (series / 10.0).reindex(frame.index)
+                candidate_features[feature] = ten_year_yield_series_pct(series).reindex(frame.index)
             else:
                 candidate_features[feature] = _return_series(series).reindex(frame.index)
         else:
@@ -713,7 +715,7 @@ def _make_market_snapshot(
         "put_call_ratio": None,
         "realized_vol_20d_pct": float(rv20) if rv20 is not None else None,
         "us_2y_yield_pct": None,
-        "us_10y_yield_pct": float(_safe_last(treasury_series) / 10.0) if _safe_last(treasury_series) is not None else None,
+        "us_10y_yield_pct": ten_year_yield_pct(_safe_last(treasury_series)),
         "dxy_level": float(_safe_last(dxy_series)) if _safe_last(dxy_series) is not None else None,
         "wti_crude_usd": float(_safe_last(crude_series)) if _safe_last(crude_series) is not None else None,
         "fed_watch_summary": "Not supplied by the Yahoo Finance daily-history adapter.",

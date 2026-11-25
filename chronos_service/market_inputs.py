@@ -171,6 +171,31 @@ def iv_rank_pct(series: pd.Series, as_of: date, window: int = 252) -> float | No
     return (float(tail.iloc[-1]) - lo) / (hi - lo) * 100.0
 
 
+# Yahoo once quoted ^TNX x10 (42.0 for 4.20%); it now quotes the yield itself, in
+# percent, across the whole history (0.536 in July 2020, 8.43 in January 1990, 4.84
+# in November 2026). No 10-year yield has been near 20% since 1981, so a value above
+# this is the old convention. server/publicChronosAdapter.ts applies the same rule.
+TNX_X10_THRESHOLD = 20.0
+
+
+def ten_year_yield_pct(tnx: float | None) -> float | None:
+    """The 10-year yield in percent from a ^TNX quote in either Yahoo convention."""
+    if tnx is None or not pd.notna(tnx):
+        return None
+    value = float(tnx)
+    return value / 10.0 if value > TNX_X10_THRESHOLD else value
+
+
+def ten_year_yield_series_pct(series: pd.Series) -> pd.Series:
+    """A ^TNX history in percent. The convention is decided ONCE, from the latest
+    value, and applied to the whole series: deciding bar by bar would misread a x10
+    quote from a low-yield era (15.0 for 1.5% in 2020) as a 15% yield."""
+    finite = series.dropna()
+    if finite.empty:
+        return series
+    return series / 10.0 if float(finite.iloc[-1]) > TNX_X10_THRESHOLD else series
+
+
 def choose_daily_series(candidates: list[dict[str, Any]], as_of: date) -> dict[str, Any] | None:
     """Candidate whose latest close on or before ``as_of`` is newest; earlier candidates win ties."""
     best: dict[str, Any] | None = None
